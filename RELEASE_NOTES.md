@@ -143,5 +143,31 @@ Read-only checks against the configured hosted backend confirmed:
 A successful real booking, WhatsApp delivery, authenticated production staff
 flows, and native release builds have not been exercised by these checks. No
 messages were sent and no production reservations or accounts were created.
-The public frontend URL has not yet been provided, so its deployment is not
-verified by this report.
+
+### Public frontend check — https://www.kurdstay.com
+
+The live site redirects both HTTP and `www` to `https://kurdstay.com/`, returns
+HTTP 200 over valid HTTPS, and is hosted on Netlify. Home, search and registration
+pages loaded in English, Arabic, Sorani and Bahdini without JavaScript errors or
+horizontal overflow at 390 px. Desktop home also fits at 1440 px. Language
+switching updates page direction. Direct SPA routes and service-worker assets
+are reachable.
+
+After publishing through Bolt, the live main asset is
+`/assets/index-1PMQDd8o.js`. The deployed code includes session-token handling,
+session headers, server-side quotes, atomic booking requests, and registration's
+shared authentication headers. It uses the same secured Supabase project checked
+above. The corrected Sorani, Bahdini and Arabic strings and Arabic guest plurals
+are visible on the live pages. Bahdini declares `kmr-Arab-IQ`; all three languages
+use RTL layouts with LTR email/phone fields. Anonymous admin navigation redirects
+to login.
+
+Live checkout for October 6–8, 2026 calls the quote RPC, displays the unavailable
+dates message, and disables "Request booking". No booking was submitted. A
+repeat inventory check still found no future open room stock, so configuring
+accurate availability remains the booking-launch blocker. Real authenticated
+bookings and WhatsApp delivery remain untested as described above.
+
+Production publishing is through Bolt to Netlify. A GitHub push alone does not
+confirm a production deployment; verify the published application after each
+release.
