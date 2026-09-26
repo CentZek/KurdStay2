@@ -1,3 +1,4 @@
+import { bookingMessages } from './bookingMessages'
 const kmr = {
   ux: {
     navigation: 'ڕێنیشاندەنا سەرەکی', menu: 'ڤەکرن یان گرتنا لیستێ', listProperty: 'موڵکا خۆ زێدە بکە',
@@ -150,6 +151,7 @@ const kmr = {
     getDirections: 'رێی وەربگرە',
   },
   booking: {
+    ...bookingMessages.kmr,
     title: 'حجزا خۆ تەمام بکە',
     guestInfo: 'پێزانینێن میوانی',
     bookingSummary: 'پوختەیا حجزێ',

@@ -20,7 +20,7 @@ const steps: { id: Step; labelKey: string; icon: React.ReactNode }[] = [
 
 export default function AddAccommodation() {
   const { t } = useTranslation()
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const formRef = useRef<HTMLFormElement>(null)
 
@@ -38,9 +38,9 @@ export default function AddAccommodation() {
   const [amenities, setAmenities] = useState<string[]>([])
 
   useEffect(() => {
-    if (!user) navigate('/login')
+    if (!authLoading && !user) navigate('/login')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id])
+  }, [user?.id, authLoading])
 
   useEffect(() => {
     if (user) {

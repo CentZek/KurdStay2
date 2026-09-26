@@ -1,3 +1,4 @@
+import { functionHeaders } from '../../lib/session'
 import { useState, useRef } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -106,7 +107,7 @@ export default function AdminImportHotel() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            ...functionHeaders(),
           },
           body: JSON.stringify(payload),
         }

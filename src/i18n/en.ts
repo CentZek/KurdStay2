@@ -1,3 +1,4 @@
+import { bookingMessages } from './bookingMessages'
 const en = {
   ux: {
     navigation: 'Main navigation', menu: 'Open or close menu', listProperty: 'List your property',
@@ -150,6 +151,7 @@ const en = {
     getDirections: 'Get Directions',
   },
   booking: {
+    ...bookingMessages.en,
     title: 'Complete Your Booking',
     guestInfo: 'Guest Information',
     bookingSummary: 'Booking Summary',

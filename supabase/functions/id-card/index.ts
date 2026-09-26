@@ -1,3 +1,4 @@
+import { authenticateUser } from "../_shared/session.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 
@@ -5,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
+    "Content-Type, Authorization, X-Client-Info, Apikey, X-Stay-Session, X-Stay-Visitor",
 };
 
 const supabase = createClient(
@@ -22,21 +23,6 @@ function jsonResp(body: unknown, status = 200) {
 
 function errorResp(msg: string, status = 400) {
   return jsonResp({ error: msg }, status);
-}
-
-async function authenticateUser(
-  req: Request,
-): Promise<{ id: string; role: string } | null> {
-  const userId = req.headers.get("x-user-id");
-  if (!userId) return null;
-
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, role")
-    .eq("id", userId)
-    .maybeSingle();
-
-  return data;
 }
 
 Deno.serve(async (req: Request) => {

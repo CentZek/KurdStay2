@@ -17,6 +17,7 @@ interface Hotel {
   address: string
   images: string[]
   amenities: string[]
+  profit_margin_percentage: number
   currency: string
   latitude: number | null
   longitude: number | null
@@ -138,7 +139,7 @@ export default function HotelDetail() {
     setLoading(true)
     setError('')
     const [hotelRes, roomsRes] = await Promise.all([
-      supabase.from('hotels').select('id, name, location, city, country, description, address, images, amenities, currency, latitude, longitude').eq('id', id).maybeSingle(),
+      supabase.from('hotels').select('id, name, location, city, country, description, address, images, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
       supabase.from('room_types').select('*').eq('hotel_id', id),
     ])
     if (hotelRes.error || roomsRes.error) {
@@ -334,7 +335,7 @@ export default function HotelDetail() {
                       <div className="flex items-end gap-4">
                         <div className="text-end">
                           <p className="text-2xl font-bold text-primary-400">
-                            {formatPrice(room.base_price)}
+                            {formatPrice(room.base_price * (1 + (hotel.profit_margin_percentage || 0) / 100))}
                           </p>
                           <p className="text-xs text-gray-400">{t('common.pricePerNight')}</p>
                         </div>

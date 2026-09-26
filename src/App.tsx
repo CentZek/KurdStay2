@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useEffect, lazy, Suspense } from 'react'
 import { LayoutDashboard, Building2, CalendarCheck, Users, MapPin, MessageCircle, ClipboardList, Bed, Calendar, ArrowUpRight } from 'lucide-react'
@@ -49,7 +49,7 @@ function ScrollToTop() {
 
 function Dashboard({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
-  const { profile } = useAuth()
+  const { profile, loading } = useAuth()
   const { pathname } = useLocation()
   const isAdmin = pathname.startsWith('/admin')
   const hotelId = pathname.split('/')[3]
@@ -70,6 +70,9 @@ function Dashboard({ children }: { children: React.ReactNode }) {
     ] : []),
   ]
   const allowed = profile?.role === 'admin' || (!isAdmin && profile?.role === 'hotel_owner')
+  if (loading) return <PageLoader />
+  if (!profile) return <Navigate to="/login" replace />
+  if (!allowed) return <Navigate to="/" replace />
   return <div className="dashboard-shell">
     {allowed && <aside className="workspace-sidebar"><div className="workspace-label">{t('ux.workspace')}</div><nav aria-label={t('common.dashboard')}>{links.map(item => <NavLink key={item.to} to={item.to} end className={({isActive}) => isActive ? 'workspace-link active' : 'workspace-link'}><item.icon size={18}/><span>{item.label}</span></NavLink>)}</nav><NavLink to="/search" className="workspace-public">{t('common.browseProperties')}<ArrowUpRight size={16}/></NavLink></aside>}
     <div className="dashboard-content">{children}</div>
@@ -100,6 +103,7 @@ function AppContent() {
       <main id="main-content" tabIndex={-1}>
       <Suspense fallback={<PageLoader />}>
         <Routes>
+          <Route path="*" element={<div className="mx-auto max-w-lg px-6 py-20 text-center"><h1 className="text-2xl font-bold">{i18n.t('common.notFound')}</h1><NavLink to="/" className="inline-block mt-6 rounded-xl bg-primary-600 px-6 py-3 text-white">{i18n.t('common.home')}</NavLink></div>} />
           <Route path="/" element={<HomePage />} />
           <Route path="/search" element={<SearchResults />} />
           <Route path="/hotel/:id" element={<HotelDetail />} />

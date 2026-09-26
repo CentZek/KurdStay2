@@ -1,3 +1,4 @@
+import { authenticateUser } from "../_shared/session.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 
@@ -5,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
+    "Content-Type, Authorization, X-Client-Info, Apikey, X-Stay-Session, X-Stay-Visitor",
 };
 
 const supabase = createClient(
@@ -90,113 +91,35 @@ async function sendWhatsAppCode(phone: string, code: string): Promise<{ success:
   }
 }
 
+async function codeHash(code: string) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(code));
+  return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function handleSend(profileId: string, rawPhone: string) {
-  if (!profileId || !rawPhone) {
-    return json({ success: false, error: "Missing profile or phone" }, 400);
-  }
-
+  if (typeof rawPhone !== "string") return json({ error: "Invalid phone" }, 400);
   const phone = normalizePhone(rawPhone);
-
-  await supabase.from("profiles").update({ phone }).eq("id", profileId);
-
-  // Invalidate old codes for this profile+phone
-  await supabase
-    .from("phone_verification_codes")
-    .update({ verified: true })
-    .eq("profile_id", profileId)
-    .eq("phone", phone)
-    .eq("verified", false);
-
+  if (!/^\+[1-9][0-9]{7,14}$/.test(phone)) return json({ error: "Invalid phone" }, 400);
   const code = generateCode();
-
-  const { error: insertError } = await supabase
-    .from("phone_verification_codes")
-    .insert({ profile_id: profileId, phone, code });
-
-  if (insertError) {
-    console.error("Failed to store verification code:", insertError);
-    return json({ success: false, error: "Could not generate verification code." }, 500);
-  }
-
+  const { data, error } = await supabase.rpc("prepare_phone_verification", {
+    p_profile: profileId, p_phone: phone, p_hash: await codeHash(code),
+  });
+  if (error) return json({ error: "Verification unavailable" }, 500);
+  if (!data) return json({ error: "Please wait before trying again, or use a different number." }, 429);
   const result = await sendWhatsAppCode(phone, code);
-
-  if (!result.success) {
-    if (result.error === "not_configured") {
-      return json({
-        success: false,
-        code: "not_configured",
-        error: "WhatsApp verification is not set up yet.",
-      }, 503);
-    }
-    return json({
-      success: false,
-      error: result.error || "Could not send verification. Check the number and try again.",
-    }, 502);
-  }
-
+  if (!result.success) return json({ success: false, code: result.error === "not_configured" ? "not_configured" : "send_failed",
+    error: "Could not send verification. Please try again later." }, 503);
   return json({ success: true, phone });
 }
 
-async function handleVerify(profileId: string, userCode: string, rawPhone: string) {
-  if (!profileId || !userCode) {
-    return json({ success: false, error: "Missing profile or code" }, 400);
-  }
-
-  let phone = rawPhone;
-  if (!phone) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("phone")
-      .eq("id", profileId)
-      .maybeSingle();
-    phone = profile?.phone;
-  }
-
-  if (!phone) {
-    return json({ success: false, error: "No phone number found. Please request a new code." }, 400);
-  }
-
-  phone = normalizePhone(phone);
-
-  const { data: record } = await supabase
-    .from("phone_verification_codes")
-    .select("id, code, expires_at")
-    .eq("profile_id", profileId)
-    .eq("phone", phone)
-    .eq("verified", false)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!record) {
-    return json({ success: false, error: "No pending verification. Please request a new code." }, 400);
-  }
-
-  if (new Date(record.expires_at) < new Date()) {
-    await supabase
-      .from("phone_verification_codes")
-      .update({ verified: true })
-      .eq("id", record.id);
-    return json({ success: false, error: "Code expired. Please request a new one." }, 400);
-  }
-
-  if (record.code !== userCode.trim()) {
-    return json({ success: false, error: "Incorrect code. Please try again." }, 400);
-  }
-
-  // Mark code as used
-  await supabase
-    .from("phone_verification_codes")
-    .update({ verified: true })
-    .eq("id", record.id);
-
-  // Mark phone as verified in the profile
-  await supabase
-    .from("profiles")
-    .update({ phone_verified: true, phone_verified_at: new Date().toISOString(), phone })
-    .eq("id", profileId);
-
-  return json({ success: true, phone });
+async function handleVerify(profileId: string, code: string) {
+  if (typeof code !== "string" || !/^\d{6}$/.test(code.trim())) return json({ error: "Enter a six-digit code" }, 400);
+  const { data, error } = await supabase.rpc("consume_phone_verification", {
+    p_profile: profileId, p_hash: await codeHash(code.trim()),
+  });
+  if (error) return json({ error: "Verification unavailable" }, 500);
+  if (!data) return json({ error: "Invalid or expired code. Request a new code after five attempts." }, 400);
+  return json({ success: true });
 }
 
 Deno.serve(async (req: Request) => {
@@ -205,14 +128,16 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const user = await authenticateUser(req);
+    if (!user) return json({ error: "Not authenticated" }, 401);
     const body = await req.json();
     const action = body.action;
 
     if (action === "send") {
-      return await handleSend(body.profile_id, body.phone);
+      return await handleSend(user.id, body.phone);
     }
     if (action === "verify") {
-      return await handleVerify(body.profile_id, body.code, body.phone);
+      return await handleVerify(user.id, body.code);
     }
     return json({ success: false, error: "Unknown action" }, 400);
   } catch (err) {

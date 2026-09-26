@@ -21,6 +21,7 @@ interface HotelItem {
   images: string[]
   amenities: string[]
   property_type: string
+  profit_margin_percentage: number
   currency: string
   room_types: { base_price: number }[]
 }
@@ -139,7 +140,7 @@ export default function HomePage() {
   function getMinPrice(hotel: HotelItem) {
     if (!hotel.room_types || hotel.room_types.length === 0) return null
     const minBase = Math.min(...hotel.room_types.map(r => r.base_price))
-    return minBase
+    return minBase * (1 + (hotel.profit_margin_percentage || 0) / 100)
   }
 
   function formatPrice(amount: number, currency: string) {

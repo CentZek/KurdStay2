@@ -77,48 +77,14 @@ export default function AdminApplications() {
     setWorking(true)
     setError('')
 
-    const { data: hotel, error: hotelError } = await supabase
-      .from('hotels')
-      .insert({
-        name: app.property_name,
-        city: app.city,
-        location: app.location || app.city,
-        description: app.description,
-        address: app.address,
-        country: app.country || 'Iraq',
-        images: app.images || [],
-        amenities: app.amenities || [],
-        status: 'active',
-        property_type: app.property_type,
-        phone: app.phone,
-        contact_person: app.contact_person || app.applicant_name,
-        currency: 'USD',
-        latitude: app.latitude,
-        longitude: app.longitude,
-        owner_id: app.applicant_id,
-        profit_margin_percentage: 10,
-      })
-      .select('id')
-      .maybeSingle()
-
-    if (hotelError || !hotel) {
+    const { error: approvalError } = await supabase.rpc('approve_accommodation', {
+      p_application: app.id, p_notes: note || null,
+    })
+    if (approvalError) {
       setWorking(false)
       setError(t('applications.createPropertyError'))
       return
     }
-
-    await supabase.from('hotel_managers').insert({ hotel_id: hotel.id, profile_id: app.applicant_id })
-    await supabase.from('profiles').update({ role: 'hotel_owner' }).eq('id', app.applicant_id)
-    await supabase
-      .from('accommodation_applications')
-      .update({
-        status: 'approved',
-        hotel_id: hotel.id,
-        admin_notes: note || null,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: profile!.id,
-      })
-      .eq('id', app.id)
 
     setWorking(false)
     setSelected(null)

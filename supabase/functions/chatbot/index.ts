@@ -1,3 +1,4 @@
+import { requestClient } from "../_shared/session.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 
@@ -5,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
+    "Content-Type, Authorization, X-Client-Info, Apikey, X-Stay-Session, X-Stay-Visitor",
 };
 
 const supabase = createClient(
@@ -75,12 +76,12 @@ function extractDigits(phone: string): string {
   return phone.replace(/[^\d]/g, "");
 }
 
-async function queryBookingByPhone(phone: string) {
+async function queryBookingByPhone(phone: string, scoped: ReturnType<typeof requestClient>) {
   const digits = extractDigits(phone);
   // Use last 9-10 digits for flexible matching (handles +964, 00964, 0 prefix variations)
   const matchDigits = digits.length >= 10 ? digits.slice(-10) : digits.slice(-9);
 
-  const { data: bookings } = await supabase
+  const { data: bookings } = await scoped
     .from("bookings")
     .select(
       "id, check_in_date, check_out_date, guests, rooms, final_price_total, status, notes, customer_name, customer_phone, hotels(name, city), room_types(name)",
@@ -244,7 +245,7 @@ Deno.serve(async (req: Request) => {
         }
 
         if (foundPhone) {
-          contextData = await queryBookingByPhone(foundPhone);
+          contextData = await queryBookingByPhone(foundPhone, requestClient(req));
         }
 
         systemPrompt = `You are a helpful hotel booking assistant for KurdStay. The customer wants help with a current reservation or cancellation.
@@ -397,7 +398,7 @@ Ask which they'd like help with. Be brief and friendly.`;
     return jsonResponse({ reply });
   } catch (err) {
     return jsonResponse(
-      { error: err.message || "Internal server error" },
+      { error: (err instanceof Error ? err.message : "Internal server error") || "Internal server error" },
       500,
     );
   }

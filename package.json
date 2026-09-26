@@ -12,7 +12,9 @@
     "cap:open:ios": "npx cap open ios",
     "cap:open:android": "npx cap open android",
     "cap:run:ios": "npx cap run ios",
-    "cap:run:android": "npx cap run android"
+    "cap:run:android": "npx cap run android",
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "playwright test"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
@@ -40,6 +42,8 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/assets": "^3.0.5",
     "@capacitor/ios": "^8.5.2",
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",
@@ -48,5 +52,14 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
+  },
+  "overrides": {
+    "@capacitor/assets": {
+      "sharp": "^0.35.4",
+      "@capacitor/cli": "$@capacitor/cli"
+    },
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
   }
 }

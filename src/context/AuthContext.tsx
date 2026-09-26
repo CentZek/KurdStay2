@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { changeLanguage } from '../i18n'
+import { hasSession, setSession } from '../lib/session'
 
 interface UserProfile {
   id: string
@@ -35,27 +36,29 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const STORAGE_KEY = 'stayhub_user'
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored) {
+    let active = true
+    localStorage.removeItem('stayhub_user')
+    async function restore() {
       try {
-        setUser(JSON.parse(stored))
-      } catch {
-        localStorage.removeItem(STORAGE_KEY)
+        if (!hasSession()) return
+        const { data, error } = await supabase.rpc('current_profile')
+        if (active && !error && data) persist(data as UserProfile)
+        else if (!error && !data) setSession('')
+      } finally {
+        if (active) setLoading(false)
       }
     }
-    setLoading(false)
+    restore().catch(() => {})
+    return () => { active = false }
   }, [])
 
   function persist(userProfile: UserProfile) {
     setUser(userProfile)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(userProfile))
     if (userProfile.language_preference) changeLanguage(userProfile.language_preference)
   }
 
@@ -68,6 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return { error: { message: error.message } }
     if (!data.success) return { error: { message: data.message } }
 
+    if (!data.session_token) return { error: { message: 'Secure sign-in is unavailable. Please try again later.' } }
+    setSession(data.session_token)
     persist(data.user as UserProfile)
     return { error: null }
   }
@@ -86,6 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return { error: { message: error.message } }
     if (!data.success) return { error: { message: data.message } }
 
+    if (!data.session_token) return { error: { message: 'Account created. Please sign in after the service update.' } }
+    setSession(data.session_token)
     const userProfile = data.user as UserProfile
     persist(userProfile)
     return { error: null, user: userProfile }
@@ -107,8 +114,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    setUser(null)
-    localStorage.removeItem(STORAGE_KEY)
+    try { await supabase.rpc('logout') } finally {
+      setUser(null)
+      setSession('')
+    }
   }
 
   return (

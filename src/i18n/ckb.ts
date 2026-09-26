@@ -1,3 +1,4 @@
+import { bookingMessages } from './bookingMessages'
 const ku = {
   ux: {
     navigation: 'ڕێنیشاندەری سەرەکی', menu: 'کردنەوە یان داخستنی لیست', listProperty: 'شوێنی مانەوەکەت زیاد بکە',
@@ -150,6 +151,7 @@ const ku = {
     getDirections: 'ئاراستەکان ببینە',
   },
   booking: {
+    ...bookingMessages.ckb,
     title: 'حجزکردنەکەت تەواو بکە',
     guestInfo: 'زانیاری میوان',
     bookingSummary: 'پوختەی حجزکردن',

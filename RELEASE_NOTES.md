@@ -1,0 +1,92 @@
+# Booking audit and deployment
+
+The fixes are implemented locally. They do not change the hosted database until
+the four `20260926` migrations and matching Edge Functions are deployed.
+
+## Fixed
+
+- Anonymous access to private profiles, reservations, chats and applications;
+  anonymous edits to properties, prices, inventory and manager assignments.
+- Forged browser roles, public privileged registration, unauthorized password
+  changes, readable password storage, and known seeded demo passwords.
+- ID-card impersonation via `x-user-id`, phone verification against someone
+  else's profile, unrestricted hotel imports, and chatbot booking lookups that
+  previously used service-role access with only a supplied phone number.
+- Browser-supplied booking totals, ignored nightly prices/closures/inventory,
+  duplicate retries, multi-room capacity validation and historical status updates.
+- Repeated notification triggers, unlimited verification attempts, and partial
+  property approval that could create duplicate properties on retry.
+- Private REST responses and signed ID images cached by the service worker.
+- Vulnerable dependencies. Overrides align the asset generator with the app's
+  Capacitor CLI and patched Sharp/UUID releases. The asset smoke test exercises
+  icon loading, resizing and Xcode ID generation.
+
+Checkout now checks availability before enabling submission, explains failures,
+preserves input on retry, displays server totals and actual reservation status,
+and provides a route back to the property. Feedback is translated into all four
+languages. Listing prices include the platform margin. Date-only formatting no
+longer shifts the stay day in time zones west of UTC.
+
+## Coordinated deployment
+
+1. Back up the database and test this release against a staging copy. Rotate any
+   accounts still using the shipped `admin123` or `hotel123` passwords through a
+   trusted SQL connection. The migration disables these exact seeded credentials;
+   it retains accounts and any passwords already changed. Existing passwords may
+   have been exposed by the old public profiles policy and should be rotated.
+2. Inspect room inventory before release. Every occupied night must have a
+   `room_availability` row with sufficient `available_rooms`. This field is the
+   total sellable stock; pending and confirmed reservations are subtracted
+   automatically. Checkout day is excluded. Unconfigured or closed nights cannot
+   be booked. Existing reservations are retained.
+3. During a coordinated maintenance window, apply the four new migrations in
+   filename order. Deploy `id-card`, `phone-verification`, `whatsapp-notify`,
+   `chatbot`, `import-hotel`, and the new `property-images` Edge Function, including
+   `_shared/session.ts`. Preserve existing service and messaging secrets. Deploy
+   the frontend build and rebuild/sync native clients with the same frontend.
+   Older clients intentionally fail closed; they cannot perform legacy anonymous
+   writes. Do not ship only the frontend or only the database changes.
+4. Sign in again and verify admin, manager, customer and anonymous guest flows.
+   Sessions expire after seven days and logout revokes the server token. Legacy
+   `stayhub_user` localStorage profiles are discarded. Managers retain room,
+   inventory and image management for assigned properties.
+5. Verify simultaneous requests for the last room on staging, plus real storage,
+   CORS, WhatsApp delivery, and native builds. Automated browser tests use mocked
+   APIs; database tests execute the full migration history in isolated PGlite.
+   They do not contact or modify production data or send messages.
+
+Guest confirmations are private to the originating browser secret or the account
+that created them. Historical bookings lack that ownership information and remain
+accessible to authorized staff, rather than being matched to unverified emails.
+Clearing browser storage loses anonymous confirmation access; staff can locate the
+full booking reference. Private live chat uses authenticated HTTP polling because
+the previous anonymous Realtime connection cannot convey the new session headers.
+
+Notification claims guarantee at most one delivery attempt per booking/event.
+If the messaging provider fails after the claim, staff must inspect delivery logs
+and explicitly retry through trusted operations. Booking success does not depend
+on messaging delivery. The public chatbot still needs deployment-level rate limits
+appropriate to its AI usage budget.
+
+## Verification
+
+```text
+npm ci
+npm test
+npx playwright install chromium
+npm run test:ui
+npm run build
+npm audit
+```
+
+Edge type checking (Deno):
+
+```text
+deno check --node-modules-dir=none --no-lock supabase/functions/*/index.ts
+```
+
+Do not restore permissive policies as a rollback. Keep the security migration in
+place and roll forward with matching clients. Session headers are validated
+against hashed, expiring server records using [PostgREST request headers](https://postgrest.org/en/latest/references/transactions.html).
+Access is enforced with [PostgreSQL row security](https://www.postgresql.org/docs/17/ddl-rowsecurity.html)
+and restricted function/column privileges.

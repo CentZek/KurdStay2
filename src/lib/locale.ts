@@ -12,7 +12,9 @@ export function currentLocale(): string {
 }
 
 export function formatDate(date: Date | string, options?: Intl.DateTimeFormatOptions): string {
-  const d = typeof date === 'string' ? new Date(date) : date
+  // A stay date is a local calendar day, not UTC midnight (which shifts a day
+  // backwards for guests west of UTC).
+  const d = typeof date === 'string' ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T00:00:00` : date) : date
   if (isNaN(d.getTime())) return String(date)
   return d.toLocaleDateString(currentLocale(), options)
 }

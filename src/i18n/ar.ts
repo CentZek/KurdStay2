@@ -1,3 +1,4 @@
+import { bookingMessages } from './bookingMessages'
 const ar = {
   ux: {
     navigation: 'التنقل الرئيسي', menu: 'فتح أو إغلاق القائمة', listProperty: 'أضف مكان إقامتك',
@@ -150,6 +151,7 @@ const ar = {
     getDirections: 'احصل على الاتجاهات',
   },
   booking: {
+    ...bookingMessages.ar,
     title: 'أكمل حجزك',
     guestInfo: 'معلومات الضيف',
     bookingSummary: 'ملخص الحجز',

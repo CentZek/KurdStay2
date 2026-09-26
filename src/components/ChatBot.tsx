@@ -1,3 +1,4 @@
+import { functionHeaders } from '../lib/session'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MessageCircle, X, Send, Loader2, Bot, User, Headphones } from 'lucide-react'
@@ -6,6 +7,7 @@ import { supabase } from '../lib/supabase'
 interface Message {
   role: 'user' | 'assistant' | 'agent'
   content: string
+  id?: string
 }
 
 type Intent = '' | 'reservation' | 'feedback' | 'availability' | 'list_property' | 'other'
@@ -41,27 +43,30 @@ export default function ChatBot() {
     }
   }, [open, showMenu])
 
-  // Listen for agent messages via realtime
+  // HTTP polling carries the validated session/guest secret. Realtime's anon
+  // websocket does not carry these headers and cannot authorize private chats.
   useEffect(() => {
-    if (!sessionId) return
-
-    const channel = supabase
-      .channel(`chat-${sessionId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `session_id=eq.${sessionId}` },
-        (payload) => {
-          const msg = payload.new as { role: string; content: string }
-          if (msg.role === 'agent') {
-            setLiveAgent(true)
-            setMessages(prev => [...prev, { role: 'agent', content: msg.content }])
-          }
+    if (!sessionId || !open) return
+    let active = true
+    let timer: number
+    const seen = new Set<string>()
+    async function poll() {
+      try {
+        const { data } = await supabase.from('chat_messages').select('id, content')
+          .eq('session_id', sessionId).eq('role', 'agent').order('created_at')
+        if (!active) return
+        const incoming = (data || []).filter(message => !seen.has(message.id))
+        incoming.forEach(message => seen.add(message.id))
+        if (incoming.length) {
+          setLiveAgent(true)
+          setMessages(previous => [...previous, ...incoming.filter(message => !previous.some(item => item.id === message.id))
+            .map(message => ({ id: message.id, role: 'agent' as const, content: message.content }))])
         }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [sessionId])
+      } catch { /* Retry after temporary connectivity errors. */ } finally { if (active) timer = window.setTimeout(poll, 3000) }
+    }
+    poll().catch(() => {})
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [sessionId, open])
 
   async function createSession(selectedIntent: Intent) {
     const { data } = await supabase
@@ -134,7 +139,7 @@ export default function ChatBot() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          ...functionHeaders(),
         },
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role === 'user' ? 'user' : 'assistant', content: m.content })),

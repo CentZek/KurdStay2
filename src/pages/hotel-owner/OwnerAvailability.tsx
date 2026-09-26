@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import { ArrowLeft, Save } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { formatDate } from '../../lib/locale'
-import { format, addDays } from 'date-fns'
+import { format, addDays, parseISO } from 'date-fns'
 
 interface RoomType {
   id: string
@@ -63,7 +63,7 @@ export default function OwnerAvailability() {
   async function fetchAvailability() {
     if (!startDate) return
     setFetching(true)
-    const endDate = format(addDays(new Date(startDate), days - 1), 'yyyy-MM-dd')
+    const endDate = format(addDays(parseISO(startDate), days - 1), 'yyyy-MM-dd')
     const { data, error } = await supabase
       .from('room_availability')
       .select('*')
@@ -77,7 +77,7 @@ export default function OwnerAvailability() {
 
     const rows: AvailabilityRow[] = []
     for (let i = 0; i < days; i++) {
-      const date = format(addDays(new Date(startDate), i), 'yyyy-MM-dd')
+      const date = format(addDays(parseISO(startDate), i), 'yyyy-MM-dd')
       const existing = existingMap.get(date)
       rows.push(existing || {
         room_type_id: selectedRoom,

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, X, ImageIcon, Loader2, GripVertical } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { functionHeaders } from '../lib/session'
 
 interface ImageUploaderProps {
   images: string[]
@@ -13,14 +13,16 @@ interface ImageUploaderProps {
 export default function ImageUploader({ images, onChange, folder, maxImages = 20 }: ImageUploaderProps) {
   const { t } = useTranslation()
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
-    const fileArray = Array.from(files).filter(f => f.type.startsWith('image/'))
-    if (fileArray.length === 0) return
+    const fileArray = Array.from(files).filter(f => ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(f.type) && f.size <= 10 * 1024 * 1024)
+    setUploadError(fileArray.length !== files.length)
+    if (uploading || fileArray.length === 0) return
 
     const remaining = maxImages - images.length
     if (remaining <= 0) return
@@ -30,28 +32,23 @@ export default function ImageUploader({ images, onChange, folder, maxImages = 20
     const newUrls: string[] = []
 
     for (const file of toUpload) {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-      const path = `${folder}/${fileName}`
-
-      const { error } = await supabase.storage.from('hotel-images').upload(path, file, {
-        cacheControl: '3600',
-        upsert: false,
-      })
-
-      if (!error) {
-        const { data: urlData } = supabase.storage.from('hotel-images').getPublicUrl(path)
-        if (urlData?.publicUrl) {
-          newUrls.push(urlData.publicUrl)
-        }
-      }
+      try {
+        const body = new FormData()
+        body.append('file', file)
+        const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/property-images`, {
+          method: 'POST', headers: functionHeaders(), body,
+        })
+        const result = await response.json()
+        if (!response.ok || !result.url) throw new Error('Upload failed')
+        newUrls.push(result.url)
+      } catch { setUploadError(true) }
     }
 
     if (newUrls.length > 0) {
       onChange([...images, ...newUrls])
     }
     setUploading(false)
-  }, [images, onChange, folder, maxImages])
+  }, [images, onChange, folder, maxImages, uploading])
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
@@ -107,6 +104,7 @@ export default function ImageUploader({ images, onChange, folder, maxImages = 20
 
   return (
     <div className="space-y-3">
+      {uploadError && <p role="alert" className="text-sm text-red-600">{t('common.errorOccurred')} {t('uploader.hint', { count: images.length, max: maxImages })}</p>}
       <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}

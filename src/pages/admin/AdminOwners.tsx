@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { Plus, X, Phone, User, Building2, Pencil, Eye, EyeOff, UserPlus } from 'lucide-react'
+import { Plus, X, Phone, User, Building2, Pencil, UserPlus } from 'lucide-react'
 
 interface Owner {
   id: string
   name: string
   username: string
   phone: string | null
-  plain_password: string | null
   created_at: string
 }
 
@@ -39,7 +38,6 @@ export default function AdminOwners() {
   const [showCreateOwner, setShowCreateOwner] = useState(false)
   const [showEditOwner, setShowEditOwner] = useState<Owner | null>(null)
   const [showAssignModal, setShowAssignModal] = useState<Hotel | null>(null)
-  const [showPassword, setShowPassword] = useState<Record<string, boolean>>({})
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
   const [formLoading, setFormLoading] = useState(false)
@@ -53,7 +51,7 @@ export default function AdminOwners() {
 
   async function fetchData() {
     const [ownersRes, hotelsRes, managersRes] = await Promise.all([
-      supabase.from('profiles').select('id, name, username, phone, plain_password, created_at').eq('role', 'hotel_owner').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('id, name, username, phone, created_at').eq('role', 'hotel_owner').order('created_at', { ascending: false }),
       supabase.from('hotels').select('id, name, city, currency, phone, contact_person').order('name'),
       supabase.from('hotel_managers').select('id, hotel_id, profile_id'),
     ])
@@ -147,10 +145,6 @@ export default function AdminOwners() {
     setFormLoading(false)
   }
 
-  function togglePasswordVisibility(key: string) {
-    setShowPassword(prev => ({ ...prev, [key]: !prev[key] }))
-  }
-
   if (profile?.role !== 'admin') {
     return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">{t('admin.accessDenied')}</p></div>
   }
@@ -217,17 +211,6 @@ export default function AdminOwners() {
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-gray-500">{t('admin.managers.usernameLabel')}</span>
                           <span className="text-xs font-mono font-medium text-gray-800">{owner.username}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-500">{t('admin.managers.passwordLabel')}</span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-mono font-medium text-gray-800">
-                              {showPassword[owner.id] ? (owner.plain_password || '---') : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
-                            </span>
-                            <button onClick={() => togglePasswordVisibility(owner.id)} className="text-gray-400 hover:text-gray-600">
-                              {showPassword[owner.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
                         </div>
                         {owner.phone && (
                           <div className="flex items-center justify-between">
@@ -300,17 +283,7 @@ export default function AdminOwners() {
                               <span className="text-xs font-medium text-gray-900">{mgr.name}</span>
                               <span className="text-[10px] text-gray-500">@{mgr.username}</span>
                             </div>
-                            <div className="flex items-center gap-1 ms-2">
-                              <span className="text-[10px] font-mono text-gray-500 bg-white border px-1.5 py-0.5 rounded">
-                                {showPassword[`hotel_${hotel.id}_${mgr.id}`] ? (mgr.plain_password || '---') : '\u2022\u2022\u2022\u2022'}
-                              </span>
-                              <button
-                                onClick={() => togglePasswordVisibility(`hotel_${hotel.id}_${mgr.id}`)}
-                                className="text-gray-400 hover:text-gray-600"
-                              >
-                                {showPassword[`hotel_${hotel.id}_${mgr.id}`] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                              </button>
-                            </div>
+
                             <button
                               onClick={() => removeManager(hotel.id, mgr.id)}
                               className="ms-1 p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"

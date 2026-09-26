@@ -64,11 +64,11 @@ export default function OwnerDashboard() {
     const hotelIds = (managerLinks || []).map(l => l.hotel_id)
 
     let hotelsList: Hotel[] = []
-    if (hotelIds.length > 0) {
+    {
       const { data: hotelsData, error: hotelError } = await supabase
         .from('hotels')
         .select('id, name, city, status, currency, images')
-        .in('id', hotelIds)
+        .or(hotelIds.length ? `owner_id.eq.${profile!.id},id.in.(${hotelIds.join(',')})` : `owner_id.eq.${profile!.id}`)
       if (hotelError) { setError(t('common.errorOccurred')); setLoading(false); return }
       hotelsList = hotelsData || []
     }
@@ -99,7 +99,7 @@ export default function OwnerDashboard() {
     try { if (!['https:', 'http:'].includes(new URL(newImageUrl.trim()).protocol)) return } catch { setError(t('common.errorOccurred')); return }
     const updatedImages = [...(selectedHotel.images || []), newImageUrl.trim()]
     setImageSaving(true)
-    const { error: saveError } = await supabase.from('hotels').update({ images: updatedImages }).eq('id', selectedHotel.id)
+    const { error: saveError } = await supabase.rpc('set_hotel_images', { p_hotel: selectedHotel.id, p_images: updatedImages })
     setImageSaving(false)
     if (saveError) { setError(t('common.errorOccurred')); return }
     setSelectedHotel({ ...selectedHotel, images: updatedImages })
@@ -111,7 +111,7 @@ export default function OwnerDashboard() {
     if (!selectedHotel) return
     const updatedImages = selectedHotel.images.filter((_, i) => i !== index)
     setImageSaving(true)
-    const { error: saveError } = await supabase.from('hotels').update({ images: updatedImages }).eq('id', selectedHotel.id)
+    const { error: saveError } = await supabase.rpc('set_hotel_images', { p_hotel: selectedHotel.id, p_images: updatedImages })
     setImageSaving(false)
     if (saveError) { setError(t('common.errorOccurred')); return }
     setSelectedHotel({ ...selectedHotel, images: updatedImages })

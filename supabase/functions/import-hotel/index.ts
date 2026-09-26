@@ -1,3 +1,4 @@
+import { authenticateUser } from "../_shared/session.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
@@ -6,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
+    "Content-Type, Authorization, X-Client-Info, Apikey, X-Stay-Session, X-Stay-Visitor",
 };
 
 interface ExtractedRoomType {
@@ -687,6 +688,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const user = await authenticateUser(req);
+    if (user?.role !== "admin") return jsonResponse({ error: "Not authorized" }, 403);
     const body = await req.json();
     const { url, htmlContent } = body;
 
@@ -756,7 +759,7 @@ Deno.serve(async (req: Request) => {
         }
       } catch (err) {
         return jsonResponse(
-          { error: `Could not fetch page: ${err.message}` },
+          { error: `Could not fetch page: ${(err instanceof Error ? err.message : "Internal server error")}` },
           422,
         );
       }
@@ -824,7 +827,7 @@ Deno.serve(async (req: Request) => {
           },
         });
       }
-      return jsonResponse({ error: err.message }, 502);
+      return jsonResponse({ error: (err instanceof Error ? err.message : "Internal server error") }, 502);
     }
 
     // If no rooms found and it's a Booking.com URL, try a second fetch targeting the room section
@@ -1030,6 +1033,6 @@ ${roomText.substring(0, 20000)}`,
       }
     });
   } catch (err) {
-    return jsonResponse({ error: err.message || "Internal server error" }, 500);
+    return jsonResponse({ error: (err instanceof Error ? err.message : "Internal server error") || "Internal server error" }, 500);
   }
 });

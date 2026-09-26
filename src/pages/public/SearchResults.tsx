@@ -14,6 +14,7 @@ interface Hotel {
   images: string[]
   amenities: string[]
   property_type: string
+  profit_margin_percentage: number
   currency: string
   room_types: { base_price: number; max_guests: number }[]
 }
@@ -89,13 +90,13 @@ export default function SearchResults() {
 
     let query = supabase
       .from('hotels')
-      .select('id, name, location, city, images, amenities, property_type, currency, room_types(base_price, max_guests)')
+      .select('id, name, location, city, images, amenities, property_type, currency, profit_margin_percentage, room_types(base_price, max_guests)')
       .eq('status', 'active')
 
     if (location) {
       const variants = expandSearchVariants(location)
       const orClauses = variants
-        .map(v => `city.ilike.%${v}%`)
+        .map(v => `city.ilike.${JSON.stringify(`%${v}%`)}`)
         .join(',')
       query = query.or(orClauses)
     }
@@ -117,7 +118,7 @@ export default function SearchResults() {
 
   function getMinPrice(hotel: Hotel) {
     if (!hotel.room_types || hotel.room_types.length === 0) return null
-    return Math.min(...hotel.room_types.map(r => r.base_price))
+    return Math.min(...hotel.room_types.map(r => r.base_price)) * (1 + (hotel.profit_margin_percentage || 0) / 100)
   }
 
   function getMaxGuests(hotel: Hotel) {

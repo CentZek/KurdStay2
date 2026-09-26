@@ -1,3 +1,4 @@
+import { functionHeaders } from '../../lib/session'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -64,7 +65,7 @@ export default function AdminBookings() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          ...functionHeaders(),
         },
         body: JSON.stringify({ type: 'booking_confirmed', booking_id: id }),
       }).catch(() => {})

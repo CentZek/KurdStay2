@@ -1,3 +1,4 @@
+import { functionHeaders } from '../lib/session'
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -33,7 +34,7 @@ const EMPTY: ProfileFields = {
 async function callVerification(action: 'send' | 'verify', payload: Record<string, unknown>) {
   const res = await fetch(FUNCTIONS_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${ANON_KEY}`, 'Content-Type': 'application/json' },
+    headers: { ...functionHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, ...payload }),
   })
   let body: any = {}
@@ -42,7 +43,7 @@ async function callVerification(action: 'send' | 'verify', payload: Record<strin
 }
 
 export default function ProfilePage() {
-  const { user, refreshProfile } = useAuth()
+  const { user, refreshProfile, loading: authLoading } = useAuth()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -66,6 +67,7 @@ export default function ProfilePage() {
   const [verifyLoading, setVerifyLoading] = useState(false)
 
   useEffect(() => {
+    if (authLoading) return
     if (!user) {
       navigate('/login')
       return
@@ -87,7 +89,7 @@ export default function ProfilePage() {
         if (data.id_card_url) {
           try {
             const res = await fetch(`${ID_CARD_URL}?action=view`, {
-              headers: { 'x-user-id': user.id },
+              headers: functionHeaders(),
             })
             if (res.ok) {
               const body = await res.json()
@@ -105,7 +107,7 @@ export default function ProfilePage() {
       setLoading(false)
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id])
+  }, [user?.id, authLoading])
 
   function update(key: keyof ProfileFields, value: string) {
     setFields(prev => ({ ...prev, [key]: value }))
@@ -150,7 +152,7 @@ export default function ProfilePage() {
     try {
       const res = await fetch(`${ID_CARD_URL}?action=upload`, {
         method: 'POST',
-        headers: { 'x-user-id': user.id },
+        headers: functionHeaders(),
         body: formData,
       })
       const body = await res.json()

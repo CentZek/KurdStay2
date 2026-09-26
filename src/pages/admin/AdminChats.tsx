@@ -46,44 +46,30 @@ export default function AdminChats() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Realtime subscription for new sessions
   useEffect(() => {
-    const channel = supabase
-      .channel('admin-chat-sessions')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_sessions' },
-        () => { fetchSessions() }
-      )
-      .subscribe()
+    if (profile?.role !== 'admin') return
+    const timer = window.setInterval(() => { if (!document.hidden) fetchSessions(false) }, 5000)
+    return () => window.clearInterval(timer)
+  }, [filter, profile?.role])
 
-    return () => { supabase.removeChannel(channel) }
-  }, [filter])
-
-  // Realtime subscription for messages in selected session
   useEffect(() => {
-    if (!selectedSession) return
+    if (!selectedSession || profile?.role !== 'admin') return
+    let active = true
+    let timer: number
+    async function poll() {
+      try {
+        const { data } = await supabase.from('chat_messages').select('*')
+          .eq('session_id', selectedSession).order('created_at')
+        if (active && data) setMessages(data)
+      } catch { /* Retry after temporary connectivity errors. */ }
+      finally { if (active) timer = window.setTimeout(poll, 3000) }
+    }
+    poll()
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [selectedSession, profile?.role])
 
-    const channel = supabase
-      .channel(`admin-messages-${selectedSession}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `session_id=eq.${selectedSession}` },
-        (payload) => {
-          const newMsg = payload.new as ChatMessage
-          setMessages(prev => {
-            if (prev.some(m => m.id === newMsg.id)) return prev
-            return [...prev, newMsg]
-          })
-        }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [selectedSession])
-
-  async function fetchSessions() {
-    setLoading(true)
+  async function fetchSessions(showLoading = true) {
+    if (showLoading) setLoading(true)
     let query = supabase
       .from('chat_sessions')
       .select('*')

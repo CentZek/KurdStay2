@@ -1,3 +1,4 @@
+import { authenticateUser, requestClient } from "../_shared/session.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 
@@ -5,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey",
+    "Content-Type, Authorization, X-Client-Info, Apikey, X-Stay-Session, X-Stay-Visitor",
 };
 
 const supabase = createClient(
@@ -252,6 +253,17 @@ Deno.serve(async (req: Request) => {
 
   try {
     const payload = await req.json();
+    const scoped = requestClient(req);
+    const user = await authenticateUser(req);
+    if (payload.type === "test" && user?.role !== "admin") return jsonResp({ error: "Not authorized" }, 403);
+    if (payload.type !== "test") {
+      const { data: booking } = await scoped.from("bookings").select("id, hotel_id, status").eq("id", payload.booking_id).maybeSingle();
+      if (!booking) return jsonResp({ error: "Not authorized" }, 403);
+      if (payload.type === "booking_confirmed") {
+        const { data: manages } = await scoped.rpc("app_manages_hotel", { target: booking.hotel_id });
+        if (!manages || booking.status !== "confirmed") return jsonResp({ error: "Not authorized" }, 403);
+      }
+    }
 
     if (payload.type === "test") {
       const result = await handleTest(payload.phone || "+9647505392863");
@@ -262,6 +274,12 @@ Deno.serve(async (req: Request) => {
       return jsonResp({ error: "Missing type or booking_id" }, 400);
     }
 
+    if (!["booking_created", "booking_confirmed"].includes(payload.type)) return jsonResp({ error: "Unknown notification type" }, 400);
+    const { data: claimed, error: claimError } = await supabase.rpc("claim_booking_notification", {
+      p_booking: payload.booking_id, p_kind: payload.type,
+    });
+    if (claimError) return jsonResp({ error: "Notification unavailable" }, 500);
+    if (!claimed) return jsonResp({ success: true, already_processed: true });
     let result;
     switch (payload.type) {
       case "booking_created":
@@ -274,7 +292,7 @@ Deno.serve(async (req: Request) => {
         return jsonResp({ error: `Unknown type: ${payload.type}` }, 400);
     }
 
-    return jsonResp(result);
+    return jsonResp({ success: result.success, booking_id: payload.booking_id });
   } catch (err) {
     console.error("Notification error:", err);
     return jsonResp({ error: (err as Error).message }, 500);
