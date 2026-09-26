@@ -1,7 +1,7 @@
 # Booking audit and deployment
 
 The fixes are implemented locally. They do not change the hosted database until
-the four `20260926` migrations and matching Edge Functions are deployed.
+the four `2026092617?` security migrations and matching Edge Functions are deployed.
 
 ## Fixed
 
@@ -90,3 +90,12 @@ place and roll forward with matching clients. Session headers are validated
 against hashed, expiring server records using [PostgREST request headers](https://postgrest.org/en/latest/references/transactions.html).
 Access is enforced with [PostgreSQL row security](https://www.postgresql.org/docs/17/ddl-rowsecurity.html)
 and restricted function/column privileges.
+
+## Integration with the latest main branch
+
+The duplicate registration migration now uses `CREATE OR REPLACE` so the full
+migration history can run on a fresh database. The security migrations run after
+that migration. Thirteen PNG/APK files truncated to exactly 512 KiB in the icon
+commit were restored from their byte-identical, complete predecessors; PNG CRCs
+and APK ZIP integrity were checked. The restored APK is the existing release,
+not a new native build containing these changes.

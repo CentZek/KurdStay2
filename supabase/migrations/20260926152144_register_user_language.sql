@@ -13,7 +13,7 @@
 
 DROP FUNCTION IF EXISTS public.register_user(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT);
 
-CREATE FUNCTION public.register_user(
+CREATE OR REPLACE FUNCTION public.register_user(
   p_username TEXT,
   p_password TEXT,
   p_name TEXT,
