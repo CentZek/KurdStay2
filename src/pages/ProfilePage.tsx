@@ -1,4 +1,5 @@
 import { functionHeaders } from '../lib/session'
+import { normalizeDigits } from '../lib/digits'
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -235,7 +236,7 @@ export default function ProfilePage() {
               {verified ? t('profile.whatsapp.confirmedTitle') : t('profile.whatsapp.confirmTitle')}
             </p>
             <p className={`text-sm ${verified ? 'text-green-700' : 'text-amber-700'}`}>
-              {fields.phone || t('profile.whatsapp.noNumber')}
+              {fields.phone ? <bdi dir="ltr">{fields.phone}</bdi> : t('profile.whatsapp.noNumber')}
               {!verified && t('profile.whatsapp.confirmHint')}
             </p>
 
@@ -259,7 +260,7 @@ export default function ProfilePage() {
                       inputMode="numeric"
                       maxLength={6}
                       value={code}
-                      onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+                      onChange={e => setCode(normalizeDigits(e.target.value).replace(/\D/g, ''))}
                       placeholder="000000"
                       className="w-32 px-3 py-2 border border-amber-300 rounded-xl text-center tracking-[0.3em] font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />

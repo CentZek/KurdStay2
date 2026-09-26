@@ -328,7 +328,7 @@ export default function HotelDetail() {
                         <div className="flex items-center gap-1.5 mt-2 text-gray-400">
                           <Users className="w-4 h-4" />
                           <span className="text-sm">
-                            {room.max_guests} {t('common.guests')}
+                            {t('common.guestCount', { count: room.max_guests })}
                           </span>
                         </div>
                       </div>
@@ -389,7 +389,7 @@ export default function HotelDetail() {
                   className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                    <option key={n} value={n}>{n} {t('common.guests')}</option>
+                    <option key={n} value={n}>{t('common.guestCount', { count: n })}</option>
                   ))}
                 </select>
               </div>

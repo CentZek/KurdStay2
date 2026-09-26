@@ -1,7 +1,7 @@
 BEGIN;
 -- Service-role-only operations for Edge Functions: hashes, throttling and
 -- attempt limits are updated under a lock, not in a race-prone read/write pair.
-CREATE FUNCTION public.prepare_phone_verification(p_profile uuid, p_phone text, p_hash text)
+CREATE OR REPLACE FUNCTION public.prepare_phone_verification(p_profile uuid, p_phone text, p_hash text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   PERFORM 1 FROM profiles WHERE id = p_profile FOR UPDATE;
@@ -14,7 +14,7 @@ BEGIN
   INSERT INTO phone_verifications(profile_id,phone,code_hash,expires_at) VALUES(p_profile,p_phone,p_hash,now()+interval '10 minutes');
   RETURN true;
 END $$;
-CREATE FUNCTION public.consume_phone_verification(p_profile uuid, p_hash text)
+CREATE OR REPLACE FUNCTION public.consume_phone_verification(p_profile uuid, p_hash text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v phone_verifications%ROWTYPE;
 BEGIN
@@ -26,12 +26,12 @@ BEGIN
   UPDATE profiles SET phone_verified = true, phone_verified_at = now() WHERE id = p_profile AND phone = v.phone;
   RETURN FOUND;
 END $$;
-CREATE TABLE private.booking_notifications (
+CREATE TABLE IF NOT EXISTS private.booking_notifications (
   booking_id uuid REFERENCES public.bookings(id) ON DELETE CASCADE,
   kind text CHECK (kind IN ('booking_created','booking_confirmed')),
   created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(booking_id,kind)
 );
-CREATE FUNCTION public.claim_booking_notification(p_booking uuid, p_kind text) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.claim_booking_notification(p_booking uuid, p_kind text) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   INSERT INTO private.booking_notifications(booking_id,kind) VALUES(p_booking,p_kind) ON CONFLICT DO NOTHING;

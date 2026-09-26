@@ -99,6 +99,16 @@ textarea::placeholder {
   color: #9ca3af;
 }
 
+/* Addresses, phone numbers and verification codes retain their reading order
+   inside Arabic-script forms. Prose fields still follow the page direction. */
+input[type="email"],
+input[type="tel"],
+input[type="url"],
+input[inputmode="numeric"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 .gold-shimmer {
   background-image: linear-gradient(
     100deg,

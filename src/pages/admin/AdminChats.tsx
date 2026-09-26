@@ -174,9 +174,9 @@ export default function AdminChats() {
     const diffMin = Math.floor(diffMs / 60000)
 
     if (diffMin < 1) return t('chats.justNow')
-    if (diffMin < 60) return t('chats.minutesAgo', { n: diffMin })
+    if (diffMin < 60) return t('chats.minutesAgo', { count: diffMin })
     const diffHr = Math.floor(diffMin / 60)
-    if (diffHr < 24) return t('chats.hoursAgo', { n: diffHr })
+    if (diffHr < 24) return t('chats.hoursAgo', { count: diffHr })
     return formatDate(date)
   }
 

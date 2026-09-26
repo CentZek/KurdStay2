@@ -1,12 +1,14 @@
 BEGIN;
 -- A CURRENT_DATE CHECK also blocks updating the status of historical bookings.
 ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_checkin_not_past;
+ALTER TABLE bookings DROP CONSTRAINT IF EXISTS booking_positive_quantities;
 ALTER TABLE bookings ADD CONSTRAINT booking_positive_quantities CHECK (guests > 0 AND rooms BETWEEN 1 AND 5) NOT VALID;
+ALTER TABLE room_availability DROP CONSTRAINT IF EXISTS availability_nonnegative;
 ALTER TABLE room_availability ADD CONSTRAINT availability_nonnegative CHECK
   (available_rooms >= 0 AND (base_price_override IS NULL OR base_price_override >= 0)) NOT VALID;
 CREATE INDEX IF NOT EXISTS bookings_room_dates ON bookings(room_type_id, check_in_date, check_out_date) WHERE status IN ('pending','confirmed');
 
-CREATE FUNCTION public.booking_quote(p_hotel_id uuid, p_room_type_id uuid, p_check_in date,
+CREATE OR REPLACE FUNCTION public.booking_quote(p_hotel_id uuid, p_room_type_id uuid, p_check_in date,
   p_check_out date, p_guests integer, p_rooms integer, p_exclude uuid DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE room room_types%ROWTYPE; hotel hotels%ROWTYPE; nightly record;
@@ -46,13 +48,13 @@ END $$;
 -- Excluding an existing booking is internal only: a public wrapper cannot let
 -- callers manipulate stock calculations or probe other guests' reservations.
 REVOKE ALL ON FUNCTION public.booking_quote(uuid,uuid,date,date,integer,integer,uuid) FROM PUBLIC, anon, authenticated;
-CREATE FUNCTION public.get_booking_quote(p_hotel_id uuid, p_room_type_id uuid, p_check_in date,
+CREATE OR REPLACE FUNCTION public.get_booking_quote(p_hotel_id uuid, p_room_type_id uuid, p_check_in date,
   p_check_out date, p_guests integer, p_rooms integer) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT public.booking_quote(p_hotel_id,p_room_type_id,p_check_in,p_check_out,p_guests,p_rooms);
 $$;
 
-CREATE FUNCTION public.create_booking(p_request_id uuid, p_hotel_id uuid, p_room_type_id uuid,
+CREATE OR REPLACE FUNCTION public.create_booking(p_request_id uuid, p_hotel_id uuid, p_room_type_id uuid,
   p_check_in date, p_check_out date, p_guests integer, p_rooms integer, p_name text,
   p_email text, p_phone text, p_notes text, p_expected_total numeric) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
@@ -83,7 +85,7 @@ BEGIN
   RETURN booking_id;
 END $$;
 
-CREATE FUNCTION public.guard_booking_update() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.guard_booking_update() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF NEW.check_in_date IS DISTINCT FROM OLD.check_in_date OR NEW.check_out_date IS DISTINCT FROM OLD.check_out_date THEN
@@ -96,6 +98,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS booking_update_guard ON bookings;
 CREATE TRIGGER booking_update_guard BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION public.guard_booking_update();
 REVOKE ALL ON FUNCTION public.get_booking_quote(uuid,uuid,date,date,integer,integer),
   public.create_booking(uuid,uuid,uuid,date,date,integer,integer,text,text,text,text,numeric), public.guard_booking_update() FROM PUBLIC;

@@ -3,10 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { LANGUAGES, changeLanguage } from '../i18n'
+import { normalizeDigits } from '../lib/digits'
+import { functionHeaders } from '../lib/session'
 import { Phone, ShieldCheck, MessageCircle, ArrowRight, Loader2, ChevronDown } from 'lucide-react'
 
 const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/phone-verification`
-const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 interface CountryCode {
   code: string
@@ -37,7 +38,7 @@ const COUNTRY_CODES: CountryCode[] = [
 ]
 
 function buildPhone(dial: string, national: string): string {
-  const digits = national.replace(/\D/g, '').replace(/^0+/, '')
+  const digits = normalizeDigits(national).replace(/\D/g, '').replace(/^0+/, '')
   return `${dial}${digits}`
 }
 
@@ -45,7 +46,7 @@ async function callVerification(action: 'send' | 'verify', payload: Record<strin
   const res = await fetch(FUNCTIONS_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${ANON_KEY}`,
+      ...functionHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ action, ...payload }),
@@ -86,7 +87,7 @@ export default function RegisterPage() {
   async function handleDetails(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    const nationalDigits = nationalPhone.replace(/\D/g, '').replace(/^0+/, '')
+    const nationalDigits = normalizeDigits(nationalPhone).replace(/\D/g, '').replace(/^0+/, '')
     if (nationalDigits.length < 7) {
       setError(t('register.invalidPhone'))
       return
@@ -165,7 +166,7 @@ export default function RegisterPage() {
           <p className="mt-2 text-gray-300">
             {step === 'details'
               ? t('register.subtitle')
-              : t('register.verifySubtitle', { phone: fullPhone })}
+              : t('register.verifySubtitle', { phone: '\u2066' + fullPhone + '\u2069' })}
           </p>
         </div>
 
@@ -238,11 +239,11 @@ export default function RegisterPage() {
                     className="inline-flex items-center gap-1 px-3 bg-gray-100 border border-e-0 border-gray-200 rounded-s-xl text-sm text-gray-700 font-medium hover:bg-gray-200 transition-colors whitespace-nowrap"
                   >
                     <span className="text-base leading-none">{selectedCountry.flag}</span>
-                    <span>{selectedCountry.dial}</span>
+                    <span dir="ltr">{selectedCountry.dial}</span>
                     <ChevronDown className="w-3 h-3 text-gray-400" />
                   </button>
                   {countryOpen && (
-                    <div className="absolute top-full left-0 mt-1 w-64 max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+                    <div className="absolute top-full start-0 mt-1 w-64 max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-50">
                       {COUNTRY_CODES.map(c => (
                         <button
                           key={c.code}
@@ -254,7 +255,7 @@ export default function RegisterPage() {
                         >
                           <span className="text-base leading-none">{c.flag}</span>
                           <span className="font-medium">{c.name}</span>
-                          <span className="text-gray-400 ml-auto">{c.dial}</span>
+                          <span dir="ltr" className="text-gray-400 ms-auto">{c.dial}</span>
                         </button>
                       ))}
                     </div>
@@ -287,7 +288,7 @@ export default function RegisterPage() {
               disabled={loading}
               className="mt-6 w-full flex items-center justify-center gap-2 bg-primary-600 text-white py-3 rounded-xl font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4 rtl:rotate-180" />}
               {loading ? t('register.creatingAccount') : t('register.continue')}
             </button>
 
@@ -336,7 +337,7 @@ export default function RegisterPage() {
                   maxLength={6}
                   required
                   value={code}
-                  onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+                  onChange={e => setCode(normalizeDigits(e.target.value).replace(/\D/g, ''))}
                   placeholder="000000"
                   className="w-full mt-1 px-3 py-3 border border-gray-200 rounded-xl text-center text-2xl tracking-[0.5em] font-semibold focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />

@@ -197,14 +197,14 @@ export default function SearchResults() {
         <label><span>{t('common.location')}</span><input key={location} name="location" defaultValue={location} placeholder={t('common.allDestinations')}/></label>
         <label><span>{t('search.filterBy')}</span><select key={propertyType} name="type" defaultValue={propertyType}><option value="">{t('propertyTypes.all')}</option>{['hotel','farm','villa','apartment','motel'].map(type => <option key={type} value={type}>{t(`propertyTypes.${type}`)}</option>)}</select></label>
         <button type="submit">{t('common.search')}</button>
-        {(searchParams.get('checkIn') || searchParams.get('checkOut')) && <p className="results-dates">{t('common.checkIn')}: {searchParams.get('checkIn')} &middot; {t('common.checkOut')}: {searchParams.get('checkOut')} &middot; {guestCount} {t('common.guests')}</p>}
+        {(searchParams.get('checkIn') || searchParams.get('checkOut')) && <p className="results-dates">{t('common.checkIn')}: {searchParams.get('checkIn')} &middot; {t('common.checkOut')}: {searchParams.get('checkOut')} &middot; {t('common.guestCount', { count: guestCount })}</p>}
       </form>
       {/* Header + Sort Bar */}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">{t('search.title')}</h1>
           <p className="mt-1 text-gray-400 text-sm">
-            {sortedHotels.length} {t('search.hotelsFound')} {location && t('search.inLocation', { location })}
+            {t('search.hotelsFound', { count: sortedHotels.length })} {location && t('search.inLocation', { location })}
           </p>
         </div>
 
@@ -286,7 +286,7 @@ export default function SearchResults() {
 
                     <div className="flex items-center gap-1.5 mt-2 text-gray-500">
                       <Users className="w-3.5 h-3.5" />
-                      <span className="text-sm">{t('common.upTo')} {getMaxGuests(hotel)} {t('common.guests')}</span>
+                      <span className="text-sm">{t('common.upTo')} {t('common.guestCount', { count: getMaxGuests(hotel) })}</span>
                     </div>
 
                     {hotel.amenities && hotel.amenities.length > 0 && (

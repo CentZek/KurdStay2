@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { Building2, Bed, Calendar, CalendarCheck, TrendingUp, Users, Image, X, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { currentLocale } from '../../lib/locale'
+import { formatDate } from '../../lib/locale'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts'
 
 interface Hotel {
@@ -178,7 +178,7 @@ export default function OwnerDashboard() {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const label = d.toLocaleDateString(currentLocale(), { month: 'short' })
+      const label = formatDate(d, { month: 'short' })
       months[key] = { month: label, bookings: 0, revenue: 0 }
     }
     for (const b of visibleBookings) {

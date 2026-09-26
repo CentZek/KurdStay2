@@ -4,32 +4,32 @@ BEGIN;
 CREATE SCHEMA IF NOT EXISTS private;
 REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 
-CREATE TABLE private.app_sessions (
+CREATE TABLE IF NOT EXISTS private.app_sessions (
   token_hash text PRIMARY KEY,
   profile_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   expires_at timestamptz NOT NULL DEFAULT now() + interval '7 days'
 );
-CREATE INDEX ON private.app_sessions(profile_id);
-CREATE TABLE private.login_attempts (
+CREATE INDEX IF NOT EXISTS app_sessions_profile_id_idx ON private.app_sessions(profile_id);
+CREATE TABLE IF NOT EXISTS private.login_attempts (
   username text PRIMARY KEY, attempts integer NOT NULL DEFAULT 0,
   window_start timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE FUNCTION public.request_token_hash(header_name text) RETURNS text
+CREATE OR REPLACE FUNCTION public.request_token_hash(header_name text) RETURNS text
 LANGUAGE sql STABLE SET search_path = public, extensions, pg_temp AS $$
   SELECT CASE WHEN length(token) >= 32 THEN encode(digest(token, 'sha256'), 'hex') END
   FROM (SELECT nullif(current_setting('request.headers', true), '')::jsonb ->> header_name AS token) h;
 $$;
-CREATE FUNCTION public.app_user_id() RETURNS uuid
+CREATE OR REPLACE FUNCTION public.app_user_id() RETURNS uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions, pg_temp AS $$
   SELECT profile_id FROM private.app_sessions
   WHERE token_hash = public.request_token_hash('x-stay-session') AND expires_at > now();
 $$;
-CREATE FUNCTION public.app_is_admin() RETURNS boolean
+CREATE OR REPLACE FUNCTION public.app_is_admin() RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT EXISTS (SELECT 1 FROM profiles WHERE id = public.app_user_id() AND role = 'admin');
 $$;
-CREATE FUNCTION public.app_manages_hotel(target uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.app_manages_hotel(target uuid) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT public.app_is_admin() OR EXISTS (
     SELECT 1 FROM profiles p WHERE p.id = public.app_user_id() AND p.role = 'hotel_owner'
@@ -37,12 +37,12 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
       OR EXISTS (SELECT 1 FROM hotel_managers m WHERE m.hotel_id = target AND m.profile_id = p.id))
   );
 $$;
-CREATE FUNCTION public.current_profile() RETURNS json
+CREATE OR REPLACE FUNCTION public.current_profile() RETURNS json
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT row_to_json(p) FROM (SELECT id, name, username, role, language_preference,
     phone, email, phone_verified FROM profiles WHERE id = public.app_user_id()) p;
 $$;
-CREATE FUNCTION public.logout() RETURNS void
+CREATE OR REPLACE FUNCTION public.logout() RETURNS void
 LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
   DELETE FROM private.app_sessions WHERE token_hash = public.request_token_hash('x-stay-session');
 $$;
@@ -142,7 +142,7 @@ END $$;
 GRANT UPDATE(name, phone, email, date_of_birth, gender, nationality, id_number, address, city, language_preference, role) ON profiles TO anon, authenticated;
 CREATE POLICY profile_read ON profiles FOR SELECT USING (id = public.app_user_id() OR public.app_is_admin());
 CREATE POLICY profile_edit ON profiles FOR UPDATE USING (id = public.app_user_id() OR public.app_is_admin()) WITH CHECK (id = public.app_user_id() OR public.app_is_admin());
-CREATE FUNCTION public.guard_profile_changes() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+CREATE OR REPLACE FUNCTION public.guard_profile_changes() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   IF current_user IN ('anon','authenticated') AND NEW.role IS DISTINCT FROM OLD.role AND NOT public.app_is_admin() THEN
     RAISE EXCEPTION 'Cannot change role' USING ERRCODE = '42501';
@@ -150,8 +150,10 @@ BEGIN
   IF NEW.phone IS DISTINCT FROM OLD.phone THEN NEW.phone_verified := false; NEW.phone_verified_at := NULL; END IF;
   RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS protect_profile ON profiles;
 CREATE TRIGGER protect_profile BEFORE UPDATE ON profiles FOR EACH ROW EXECUTE FUNCTION public.guard_profile_changes();
 UPDATE profiles SET plain_password = NULL;
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS no_readable_password;
 ALTER TABLE profiles ADD CONSTRAINT no_readable_password CHECK (plain_password IS NULL);
 
 CREATE POLICY hotel_read ON hotels FOR SELECT USING (status = 'active' OR public.app_manages_hotel(id));
@@ -172,16 +174,16 @@ CREATE POLICY application_admin ON accommodation_applications FOR ALL USING (pub
 CREATE POLICY support_admin ON support_requests FOR ALL USING (public.app_is_admin()) WITH CHECK (public.app_is_admin());
 
 -- Guest access is bound to a random browser secret, never a supplied profile ID.
-ALTER TABLE bookings ADD COLUMN visitor_hash text DEFAULT public.request_token_hash('x-stay-visitor');
-ALTER TABLE bookings ADD COLUMN customer_id uuid REFERENCES profiles(id);
-ALTER TABLE bookings ADD COLUMN request_id uuid UNIQUE;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS visitor_hash text DEFAULT public.request_token_hash('x-stay-visitor');
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES profiles(id);
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS request_id uuid UNIQUE;
 CREATE POLICY booking_read ON bookings FOR SELECT USING (public.app_manages_hotel(hotel_id) OR customer_id = public.app_user_id()
   OR visitor_hash = public.request_token_hash('x-stay-visitor'));
 CREATE POLICY booking_manage ON bookings FOR UPDATE USING (public.app_manages_hotel(hotel_id)) WITH CHECK (public.app_manages_hotel(hotel_id));
 REVOKE INSERT, UPDATE, DELETE ON bookings FROM PUBLIC, anon, authenticated;
 GRANT UPDATE(status) ON bookings TO anon, authenticated;
 
-ALTER TABLE chat_sessions ADD COLUMN visitor_hash text DEFAULT public.request_token_hash('x-stay-visitor');
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS visitor_hash text DEFAULT public.request_token_hash('x-stay-visitor');
 CREATE POLICY chat_read ON chat_sessions FOR SELECT USING (public.app_is_admin() OR visitor_hash = public.request_token_hash('x-stay-visitor'));
 CREATE POLICY chat_create ON chat_sessions FOR INSERT WITH CHECK (visitor_hash = public.request_token_hash('x-stay-visitor') AND status = 'open');
 CREATE POLICY chat_admin ON chat_sessions FOR ALL USING (public.app_is_admin()) WITH CHECK (public.app_is_admin());

@@ -214,7 +214,7 @@ export default function BookingPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <Link to={`/hotel/${hotel.id}?${searchParams.toString()}`} className="inline-flex items-center gap-2 text-sm text-primary-200 mb-5"><ArrowLeft size={16} aria-hidden="true" />{t('booking.backToProperty')}</Link>
+      <Link to={`/hotel/${hotel.id}?${searchParams.toString()}`} className="inline-flex items-center gap-2 text-sm text-primary-200 mb-5"><ArrowLeft size={16} className="rtl:rotate-180" aria-hidden="true" />{t('booking.backToProperty')}</Link>
       <h1 className="text-2xl font-bold text-white mb-8">{t('booking.title')}</h1>
       <p className="booking-intro">{t('ux.bookingHelp')}</p>
 

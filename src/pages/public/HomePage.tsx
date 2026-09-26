@@ -202,7 +202,7 @@ export default function HomePage() {
                 <input type="date" value={checkOut} min={minCheckout} required={Boolean(checkIn)} onChange={e => setCheckOut(e.target.value)}/>
               </label>
               <label className="search-field"><span><Users size={15}/>{t('common.guests')}</span>
-                <select value={guests} onChange={e => setGuests(e.target.value)}>{Array.from({length: 10}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} {t(n === 1 ? 'common.guest' : 'common.guests')}</option>)}</select>
+                <select value={guests} onChange={e => setGuests(e.target.value)}>{Array.from({length: 10}, (_, i) => i + 1).map(n => <option key={n} value={n}>{t('common.guestCount', { count: n })}</option>)}</select>
               </label>
               <button type="submit" className="search-submit"><Search size={19}/>{t('common.search')}<ArrowRight size={17}/></button>
             </div>

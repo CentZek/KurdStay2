@@ -86,7 +86,7 @@ function AppContent() {
   useEffect(() => {
     const dir = RTL_LANGUAGES.includes(i18n.language) ? 'rtl' : 'ltr'
     document.documentElement.dir = dir
-    document.documentElement.lang = i18n.language
+    document.documentElement.lang = i18n.language === 'kmr' ? 'kmr-Arab-IQ' : i18n.language
     document.title = i18n.t('common.appTitle', 'KurdStay - Hotels & Farms')
   }, [i18n.language])
 

@@ -1,5 +1,5 @@
 BEGIN;
-CREATE FUNCTION public.set_hotel_images(p_hotel uuid, p_images text[]) RETURNS void
+CREATE OR REPLACE FUNCTION public.set_hotel_images(p_hotel uuid, p_images text[]) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF NOT public.app_manages_hotel(p_hotel) THEN RAISE EXCEPTION 'Not authorized' USING ERRCODE = '42501'; END IF;
@@ -9,7 +9,7 @@ BEGIN
   UPDATE hotels SET images = coalesce(p_images, '{}') WHERE id = p_hotel;
 END $$;
 
-CREATE FUNCTION public.approve_accommodation(p_application uuid, p_notes text DEFAULT NULL) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.approve_accommodation(p_application uuid, p_notes text DEFAULT NULL) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE app accommodation_applications%ROWTYPE; v_hotel uuid;
 BEGIN
@@ -32,7 +32,7 @@ END $$;
 
 -- Inventory edits and reservations take the same room lock. Do not permit a
 -- manager to reduce the total inventory below already accepted requests.
-CREATE FUNCTION public.guard_inventory_update() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.guard_inventory_update() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE reserved integer;
 BEGIN
@@ -42,6 +42,7 @@ BEGIN
   IF NEW.available_rooms < reserved THEN RAISE EXCEPTION 'Inventory cannot be lower than reserved rooms'; END IF;
   RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS inventory_update_guard ON room_availability;
 CREATE TRIGGER inventory_update_guard BEFORE INSERT OR UPDATE ON room_availability FOR EACH ROW EXECUTE FUNCTION public.guard_inventory_update();
 REVOKE ALL ON FUNCTION public.set_hotel_images(uuid,text[]), public.approve_accommodation(uuid,text), public.guard_inventory_update() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.set_hotel_images(uuid,text[]), public.approve_accommodation(uuid,text) TO anon, authenticated;

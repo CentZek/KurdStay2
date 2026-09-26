@@ -1,4 +1,8 @@
 import { test, expect, Page } from '@playwright/test'
+import en from '../../src/i18n/en'
+import ar from '../../src/i18n/ar'
+import ckb from '../../src/i18n/ckb'
+import kmr from '../../src/i18n/kmr'
 
 const hotelId = '10000000-0000-0000-0000-000000000001'
 const roomId = '20000000-0000-0000-0000-000000000001'
@@ -119,9 +123,78 @@ for (const language of ['en', 'ar', 'ckb', 'kmr']) {
     await page.addInitScript(language => localStorage.setItem('language', language), language)
     await page.goto(path, { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('$275', { exact: true })).toBeVisible()
+    const translations = { en, ar, ckb, kmr }[language]!
+    await expect(page.locator('html')).toHaveAttribute('dir', language === 'en' ? 'ltr' : 'rtl')
+    await expect(page.locator('html')).toHaveAttribute('lang', language === 'kmr' ? 'kmr-Arab-IQ' : language)
+    await expect(page.getByLabel(translations.common.checkIn, { exact: true })).toHaveValue('2030-10-10')
+    await expect(page.getByRole('button', { name: translations.booking.requestBooking, exact: true })).toBeEnabled()
+    await expect(page.locator('#booking-email')).toHaveCSS('direction', 'ltr')
+    await expect(page.locator('#booking-phone')).toHaveCSS('direction', 'ltr')
     expect(await page.locator('main').innerText()).not.toContain('???')
+    if (language === 'ckb' || language === 'kmr') {
+      expect(await page.locator('main').innerText()).not.toMatch(/Oct|October/)
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await page.screenshot({ path: `tmp/checkout-${language}.png`, fullPage: true })
     expect(errors).toEqual([])
   })
 }
+
+for (const language of ['ar', 'ckb', 'kmr'] as const) {
+  test(`registration accepts local phone and verification digits (${language})`, async ({ page }) => {
+    const translations = { ar, ckb, kmr }[language]
+    const { errors } = await mockApi(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(language => localStorage.setItem('language', language), language)
+    const registrations: any[] = []
+    const verifications: any[] = []
+    await page.route('**/rest/v1/rpc/register_user', async route => {
+      registrations.push(route.request().postDataJSON())
+      await route.fulfill({ json: {
+        success: true, session_token: 'test-session',
+        user: { id: 'test-user', name: 'Test Guest', username: 'test-guest', role: 'customer', language_preference: language },
+      } })
+    })
+    await page.route('**/functions/v1/phone-verification', async route => {
+      // The deployed function rejects requests without the new registration's
+      // session. This mock must enforce the same boundary.
+      if (route.request().headers()['x-stay-session'] !== 'test-session') {
+        await route.fulfill({ status: 401, json: { error: 'Not authenticated' } })
+        return
+      }
+      verifications.push(route.request().postDataJSON())
+      await route.fulfill({ json: { success: true } })
+    })
+    await page.goto('/register', { waitUntil: 'domcontentloaded' })
+    await page.getByPlaceholder(translations.register.fullNamePlaceholder).fill('Test Guest')
+    await page.getByPlaceholder(translations.register.usernamePlaceholder).fill('test-guest')
+    await page.getByPlaceholder(translations.register.passwordPlaceholder).fill('test-password')
+    await page.locator('input[type="tel"]').fill('٠٧٧٠١٢٣٤٥٦٧')
+    await page.getByRole('button', { name: translations.register.continue, exact: true }).click()
+    await expect(page.getByPlaceholder('000000')).toBeVisible()
+    expect(registrations[0].p_phone).toBe('+9647701234567')
+    expect(registrations[0].p_language).toBe(language)
+    await page.getByPlaceholder('000000').fill('۱۲۳٤٥٦')
+    await expect(page.getByPlaceholder('000000')).toHaveValue('123456')
+    await expect(page.getByPlaceholder('000000')).toHaveCSS('direction', 'ltr')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: `tmp/register-${language}.png`, fullPage: true })
+    await page.getByRole('button', { name: translations.register.confirmNumber, exact: true }).click()
+    await expect.poll(() => verifications.find(request => request.action === 'verify')?.code).toBe('123456')
+    expect(errors).toEqual([])
+  })
+}
+
+test('Arabic guest options and language switching update immediately', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/rest/v1/hotels*', route => route.fulfill({ json: [] }))
+  await page.addInitScript(() => localStorage.setItem('language', 'ar'))
+  await page.goto('/', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('option', { name: 'ضيف واحد', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('option', { name: 'ضيفان', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('option', { name: '3 ضيوف', exact: true })).toHaveCount(1)
+  await page.getByRole('button', { name: ar.common.language, exact: true }).click()
+  await page.getByRole('button', { name: 'English', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('dir', 'ltr')
+  await expect(page.getByRole('option', { name: '2 guests', exact: true })).toHaveCount(1)
+})
