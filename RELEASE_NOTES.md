@@ -1,7 +1,8 @@
 # Booking audit and deployment
 
-The fixes are implemented locally. They do not change the hosted database until
-the four `2026092617?` security migrations and matching Edge Functions are deployed.
+These source changes do not change the hosted database until the four security
+migrations numbered `20260926170000` through `20260926173000` and the matching
+Edge Functions are deployed.
 
 ## Fixed
 
