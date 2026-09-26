@@ -1,0 +1,17 @@
+[functions.chatbot]
+verify_jwt = false
+
+[functions.id-card]
+verify_jwt = false
+
+[functions.import-hotel]
+verify_jwt = false
+
+[functions.phone-verification]
+verify_jwt = false
+
+[functions.property-images]
+verify_jwt = false
+
+[functions.whatsapp-notify]
+verify_jwt = false
