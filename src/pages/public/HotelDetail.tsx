@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { MapPin, Users, Wifi, Car, Coffee, Dumbbell, Navigation, ChevronLeft, ChevronRight, AlertCircle, Tv, AirVent, Waves, UtensilsCrossed, Sparkles, ShowerHead, Phone, Bath, BedDouble, Briefcase, Baby, Cigarette, CigaretteOff, ParkingCircle, Shirt, Snowflake, Sun, TreePine, Mountain, Eye, DoorOpen, Flame, Globe, HandPlatter, IceCream, Key, Lamp, Languages, Lock, Luggage, Mail, Map, Maximize, Music, PawPrint, Plane, Power, Receipt, Refrigerator, School, Shield, ShoppingBag, Star, Sunrise, Thermometer, Ticket, Timer, Utensils, Volume2, WashingMachine, Wind, Wine, Zap, CircleDot, Home, Sofa, CookingPot, Gamepad2, Scissors, Heart, Building2, Landmark, Armchair, Stethoscope, Clock, Droplets, Heater, Bed, MonitorSmartphone, Router, Vault } from 'lucide-react'
+import { MapPin, Users, Wifi, Car, Coffee, Dumbbell, Navigation, AlertCircle, Tv, AirVent, Waves, UtensilsCrossed, Sparkles, ShowerHead, Phone, Bath, BedDouble, Briefcase, Baby, Cigarette, CigaretteOff, ParkingCircle, Shirt, Snowflake, Sun, TreePine, Mountain, Eye, DoorOpen, Flame, Globe, HandPlatter, IceCream, Key, Lamp, Languages, Lock, Luggage, Mail, Map, Maximize, Music, PawPrint, Plane, Power, Receipt, Refrigerator, School, Shield, ShoppingBag, Star, Sunrise, Thermometer, Ticket, Timer, Utensils, Volume2, WashingMachine, Wind, Wine, Zap, CircleDot, Home, Sofa, CookingPot, Gamepad2, Scissors, Heart, Building2, Landmark, Armchair, Stethoscope, Clock, Droplets, Heater, Bed, MonitorSmartphone, Router, Vault } from 'lucide-react'
 import { format, addDays, parseISO, isValid } from 'date-fns'
 import { supabase } from '../../lib/supabase'
-import { optimizeImageUrl, getImageSrcSet } from '../../lib/imageUtils'
+import PropertyGallery from '../../components/PropertyGallery'
 import { amenityLabel } from '../../lib/amenities'
 
 interface Hotel {
@@ -16,6 +16,8 @@ interface Hotel {
   description: string
   address: string
   images: string[]
+  video_url?: string | null
+  video_poster_url?: string | null
   amenities: string[]
   profit_margin_percentage: number
   currency: string
@@ -113,7 +115,7 @@ export default function HotelDetail() {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [activeImage, setActiveImage] = useState(0)
+
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const checkIn = searchParams.get('checkIn') || ''
@@ -139,7 +141,7 @@ export default function HotelDetail() {
     setLoading(true)
     setError('')
     const [hotelRes, roomsRes] = await Promise.all([
-      supabase.from('hotels').select('id, name, location, city, country, description, address, images, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
+      supabase.from('hotels').select('id, name, location, city, country, description, address, images, video_url, video_poster_url, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
       supabase.from('room_types').select('*').eq('hotel_id', id),
     ])
     if (hotelRes.error || roomsRes.error) {
@@ -194,70 +196,17 @@ export default function HotelDetail() {
 
   const images = hotel.images?.length > 0
     ? hotel.images
-    : [
+    : hotel.video_poster_url ? [hotel.video_poster_url] : [
         'https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg?auto=compress&cs=tinysrgb&w=800',
         'https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg?auto=compress&cs=tinysrgb&w=800',
         'https://images.pexels.com/photos/271624/pexels-photo-271624.jpeg?auto=compress&cs=tinysrgb&w=800',
       ]
 
-  const canGoPrev = activeImage > 0
-  const canGoNext = activeImage < images.length - 1
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Gallery */}
-      <div className="relative rounded-2xl overflow-hidden mb-8">
-        <div className="aspect-[16/9] sm:aspect-[2.4/1]">
-          <img
-            src={optimizeImageUrl(images[activeImage], 1200)}
-            srcSet={getImageSrcSet(images[activeImage], [600, 900, 1200, 1800])}
-            sizes="(max-width: 640px) 100vw, (max-width: 1280px) 90vw, 1200px"
-            alt={hotel.name}
-            className="w-full h-full object-cover"
-            decoding="async"
-          />
-        </div>
-
-        {images.length > 1 && (
-          <>
-            <button
-              onClick={() => setActiveImage(i => Math.max(0, i - 1))}
-              disabled={!canGoPrev}
-              className="absolute start-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 backdrop-blur rounded-full flex items-center justify-center shadow-lg disabled:opacity-30 hover:bg-white transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-700" />
-            </button>
-            <button
-              onClick={() => setActiveImage(i => Math.min(images.length - 1, i + 1))}
-              disabled={!canGoNext}
-              className="absolute end-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/90 backdrop-blur rounded-full flex items-center justify-center shadow-lg disabled:opacity-30 hover:bg-white transition-colors"
-            >
-              <ChevronRight className="w-5 h-5 text-gray-700" />
-            </button>
-          </>
-        )}
-
-        <div className="absolute bottom-3 end-3 bg-black/60 text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur">
-          {activeImage + 1} / {images.length}
-        </div>
-      </div>
-
-      {/* Thumbnails */}
-      {images.length > 1 && (
-        <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
-          {images.map((img, i) => (
-            <button
-              key={i}
-              onClick={() => setActiveImage(i)}
-              className={`shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${
-                activeImage === i ? 'border-primary-500' : 'border-transparent opacity-70 hover:opacity-100'
-              }`}
-            >
-              <img src={optimizeImageUrl(img, 160)} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
-            </button>
-          ))}
-        </div>
-      )}
+      <PropertyGallery key={hotel.id} name={hotel.name} images={images}
+        video={hotel.video_url && hotel.video_poster_url ? { url: hotel.video_url, poster: hotel.video_poster_url } : null} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Info */}

@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import ImageUploader from '../components/ImageUploader'
+import VideoUploader from '../components/VideoUploader'
+import type { PropertyVideoValue } from '../lib/propertyVideo'
 import AmenityPicker from '../components/AmenityPicker'
 import {
   Building2, Image as ImageIcon, Sparkles, MapPin, ChevronLeft, CheckCircle2, Loader2, Home,
@@ -13,7 +15,7 @@ type Step = 'basics' | 'photos' | 'amenities' | 'contact'
 
 const steps: { id: Step; labelKey: string; icon: React.ReactNode }[] = [
   { id: 'basics', labelKey: 'addProperty.steps.details', icon: <Building2 className="w-4 h-4" /> },
-  { id: 'photos', labelKey: 'addProperty.steps.photos', icon: <ImageIcon className="w-4 h-4" /> },
+  { id: 'photos', labelKey: 'video.media', icon: <ImageIcon className="w-4 h-4" /> },
   { id: 'amenities', labelKey: 'addProperty.steps.amenities', icon: <Sparkles className="w-4 h-4" /> },
   { id: 'contact', labelKey: 'addProperty.steps.contact', icon: <MapPin className="w-4 h-4" /> },
 ]
@@ -35,6 +37,8 @@ export default function AddAccommodation() {
     phone: '', contact_person: '', latitude: '', longitude: '',
   })
   const [images, setImages] = useState<string[]>([])
+  const [video, setVideo] = useState<PropertyVideoValue | null>(null)
+  const [videoBusy, setVideoBusy] = useState(false)
   const [amenities, setAmenities] = useState<string[]>([])
 
   useEffect(() => {
@@ -55,14 +59,14 @@ export default function AddAccommodation() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (submitting || !user) return
+    if (submitting || videoBusy || !user) return
     if (!form.property_name || !form.city || !form.address) {
       setError(t('addProperty.errors.requiredFields'))
       setStep('basics')
       return
     }
-    if (images.length === 0) {
-      setError(t('addProperty.errors.photoRequired'))
+    if (images.length === 0 && !video) {
+      setError(t('video.mediaRequired'))
       setStep('photos')
       return
     }
@@ -85,7 +89,9 @@ export default function AddAccommodation() {
       latitude: form.latitude ? parseFloat(form.latitude) : null,
       longitude: form.longitude ? parseFloat(form.longitude) : null,
       amenities,
-      images,
+      images: images.length ? images : video ? [video.poster] : [],
+      video_url: video?.url || null,
+      video_poster_url: video?.poster || null,
       status: 'pending',
     })
 
@@ -136,6 +142,7 @@ export default function AddAccommodation() {
             <button
               key={s.id}
               type="button"
+              disabled={videoBusy}
               onClick={() => setStep(s.id)}
               className={`flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
                 step === s.id ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -187,9 +194,10 @@ export default function AddAccommodation() {
 
           {step === 'photos' && (
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-1">{t('addProperty.photosTitle')}</h3>
-              <p className="text-xs text-gray-400 mb-4">{t('addProperty.photosHelp')}</p>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">{t('video.media')}</h3>
+              <p className="text-xs text-gray-500 mb-4">{t('video.photosHelp')}</p>
               <ImageUploader images={images} onChange={setImages} folder={imageFolder} />
+              <VideoUploader value={video} onChange={setVideo} onBusyChange={setVideoBusy} />
             </div>
           )}
 
@@ -232,20 +240,20 @@ export default function AddAccommodation() {
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/50">
           <div>
             {idx > 0 && (
-              <button type="button" onClick={prev} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+              <button type="button" disabled={videoBusy} onClick={prev} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50">
                 <ChevronLeft className="w-4 h-4" /> {t('common.back')}
               </button>
             )}
           </div>
           {step !== 'contact' ? (
-            <button type="button" onClick={next} className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors">
+            <button type="button" disabled={videoBusy} onClick={next} className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50">
               {t('common.next')}
             </button>
           ) : (
             <button
               type="button"
               onClick={() => formRef.current?.requestSubmit()}
-              disabled={submitting}
+              disabled={submitting || videoBusy}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

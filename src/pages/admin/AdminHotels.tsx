@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext'
 import { Plus, X, Trash2, MapPin, ChevronLeft, Building2, Image as ImageIcon, Sparkles, Settings2, Globe } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import ImageUploader from '../../components/ImageUploader'
+import VideoUploader from '../../components/VideoUploader'
+import type { PropertyVideoValue } from '../../lib/propertyVideo'
 import AmenityPicker from '../../components/AmenityPicker'
 
 interface Hotel {
@@ -19,6 +21,8 @@ interface Hotel {
   address: string
   country: string
   images: string[]
+  video_url?: string | null
+  video_poster_url?: string | null
   amenities: string[]
   property_type: string
   phone: string | null
@@ -58,6 +62,9 @@ export default function AdminHotels() {
     latitude: '', longitude: '',
   })
   const [formImages, setFormImages] = useState<string[]>([])
+  const [formVideo, setFormVideo] = useState<PropertyVideoValue | null>(null)
+  const [videoBusy, setVideoBusy] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [formAmenities, setFormAmenities] = useState<string[]>([])
 
   useEffect(() => {
@@ -98,6 +105,8 @@ export default function AdminHotels() {
       longitude: hotel.longitude != null ? String(hotel.longitude) : '',
     })
     setFormImages(hotel.images || [])
+    setFormVideo(hotel.video_url && hotel.video_poster_url ? { url: hotel.video_url, poster: hotel.video_poster_url } : null)
+    setSaveError('')
     setFormAmenities(hotel.amenities || [])
     setCurrentStep('basics')
     setShowForm(true)
@@ -113,6 +122,8 @@ export default function AdminHotels() {
       latitude: '', longitude: '',
     })
     setFormImages([])
+    setFormVideo(null)
+    setSaveError('')
     setFormAmenities([])
     setCurrentStep('basics')
     setShowForm(true)
@@ -120,7 +131,8 @@ export default function AdminHotels() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (submitting) return
+    if (submitting || videoBusy) return
+    setSaveError('')
     setSubmitting(true)
 
     const payload = {
@@ -132,7 +144,9 @@ export default function AdminHotels() {
       country: form.country,
       profit_margin_percentage: parseFloat(form.profit_margin_percentage),
       owner_id: form.owner_id || null,
-      images: formImages,
+      images: formVideo && (!formImages.length || (formImages.length === 1 && formImages[0] === editingHotel?.video_poster_url)) ? [formVideo.poster] : formImages,
+      video_url: formVideo?.url || null,
+      video_poster_url: formVideo?.poster || null,
       amenities: formAmenities,
       status: form.status,
       property_type: form.property_type,
@@ -143,13 +157,11 @@ export default function AdminHotels() {
       longitude: form.longitude ? parseFloat(form.longitude) : null,
     }
 
-    if (editingHotel) {
-      await supabase.from('hotels').update(payload).eq('id', editingHotel.id)
-    } else {
-      await supabase.from('hotels').insert(payload)
-    }
-
+    const { error } = editingHotel
+      ? await supabase.from('hotels').update(payload).eq('id', editingHotel.id)
+      : await supabase.from('hotels').insert(payload)
     setSubmitting(false)
+    if (error) { setSaveError(t('video.saveFailed')); return }
     setShowForm(false)
     fetchHotels()
   }
@@ -162,7 +174,7 @@ export default function AdminHotels() {
 
   const steps: { id: FormStep; label: string; icon: React.ReactNode }[] = [
     { id: 'basics', label: t('common.details'), icon: <Building2 className="w-4 h-4" /> },
-    { id: 'images', label: t('admin.hotelsForm.steps.photos'), icon: <ImageIcon className="w-4 h-4" /> },
+    { id: 'images', label: t('video.media'), icon: <ImageIcon className="w-4 h-4" /> },
     { id: 'amenities', label: t('hotel.amenities'), icon: <Sparkles className="w-4 h-4" /> },
     { id: 'settings', label: t('common.settings'), icon: <Settings2 className="w-4 h-4" /> },
   ]
@@ -327,17 +339,18 @@ export default function AdminHotels() {
               <h2 className="text-lg font-semibold text-gray-900">
                 {editingHotel ? t('admin.editHotel') : t('admin.addHotel')}
               </h2>
-              <button onClick={() => setShowForm(false)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+              <button disabled={videoBusy} aria-label={t('common.cancel')} onClick={() => setShowForm(false)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
 
             {/* Step Navigation */}
-            <div className="flex border-b border-gray-100 px-6">
+            <div className="flex border-b border-gray-100 px-6 overflow-x-auto">
               {steps.map((step) => (
                 <button
                   key={step.id}
                   type="button"
+                  disabled={videoBusy}
                   onClick={() => setCurrentStep(step.id)}
                   className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                     currentStep === step.id
@@ -353,6 +366,7 @@ export default function AdminHotels() {
 
             {/* Form Content */}
             <form ref={formRef} onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+              {saveError && <p role="alert" className="feedback-message error">{saveError}</p>}
               {/* Step 1: Basic Details */}
               {currentStep === 'basics' && (
                 <div className="space-y-4">
@@ -441,6 +455,7 @@ export default function AdminHotels() {
                       onChange={setFormImages}
                       folder={imageFolder}
                     />
+                    <VideoUploader value={formVideo} onChange={setFormVideo} onBusyChange={setVideoBusy} />
                   </div>
                 </div>
               )}
@@ -520,6 +535,7 @@ export default function AdminHotels() {
                   <button
                     type="button"
                     onClick={prevStep}
+                    disabled={videoBusy}
                     className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -532,6 +548,7 @@ export default function AdminHotels() {
                   <button
                     type="button"
                     onClick={nextStep}
+                    disabled={videoBusy}
                     className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors"
                   >
                     {t('common.next')}
@@ -540,7 +557,7 @@ export default function AdminHotels() {
                   <button
                     type="button"
                     onClick={() => formRef.current?.requestSubmit()}
-                    disabled={submitting}
+                    disabled={submitting || videoBusy}
                     className="px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
                   >
                     {submitting ? t('admin.hotelsForm.saving') : (editingHotel ? t('admin.hotelsForm.updateHotel') : t('admin.hotelsForm.createHotel'))}

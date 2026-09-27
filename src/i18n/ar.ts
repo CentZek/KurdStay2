@@ -1,5 +1,7 @@
 import { bookingMessages } from './bookingMessages'
+import { videoTranslations } from './video'
 const ar = {
+  video: videoTranslations.ar,
   ux: {
     navigation: 'التنقل الرئيسي', menu: 'فتح أو إغلاق القائمة', listProperty: 'أضف مكان إقامتك',
     discover: 'فنادق ومزارع وعطلات نهاية الأسبوع', heroStart: 'إقامتك القادمة', heroAccent: 'تستحق التميّز.',

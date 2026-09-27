@@ -182,6 +182,70 @@ test('notifications can only be claimed once by the trusted service', async () =
   assert.equal(await value(`SELECT claim_booking_notification($1,'booking_created') AS value`, [bookingId]), false)
 })
 
+test('video attachment requires a completed upload owned by the caller and a managed property', async () => {
+  const url = 'https://storage.test/owner-tour.mp4'
+  const poster = 'https://storage.test/owner-tour.jpg'
+  await db.exec('RESET ROLE')
+  await db.query(`INSERT INTO property_video_uploads(id,owner_id,path,url,poster_url,size_bytes,ready)
+    VALUES(gen_random_uuid(),'b0000000-0000-0000-0000-000000000002','owner/video.mp4',$1,$2,100,true)`, [url,poster])
+  await identity()
+  await assert.rejects(db.query('SELECT * FROM property_video_uploads'), /permission denied/)
+  await assert.rejects(db.query('SELECT set_hotel_video($1,$2,$3)', [hotel,url,poster]), /Not authorized/)
+  await assert.rejects(db.query(`SELECT reserve_property_video(gen_random_uuid(),$1,'x','x','x',100)`, [customerId]), /permission denied/)
+  await identity(ownerToken)
+  await db.query('SELECT set_hotel_video($1,$2,$3)', [hotel,url,poster])
+  assert.equal((await db.query('SELECT video_url FROM hotels WHERE id=$1', [hotel])).rows[0].video_url, url)
+  await assert.rejects(db.query('SELECT set_hotel_video($1,$2,$3)', [otherHotel,url,poster]), /Not authorized/)
+  await assert.rejects(db.query('SELECT set_hotel_video($1,$2,$3)', [hotel,url,'https://attacker.test/poster.jpg']), /VIDEO_NOT_READY/)
+  await db.exec('RESET ROLE')
+  await db.query('UPDATE property_video_uploads SET ready=false WHERE url=$1', [url])
+  await identity(ownerToken)
+  await assert.rejects(db.query('SELECT set_hotel_video($1,$2,$3)', [hotel,'https://attacker.test/video.mp4',poster]), /VIDEO_NOT_READY/)
+  await db.query('SELECT set_hotel_video($1,NULL,NULL)', [hotel])
+  await assert.rejects(db.query('SELECT set_hotel_video($1,$2,$3)', [hotel,url,poster]), /VIDEO_NOT_READY/)
+})
+
+test('video-only applications retain video and cover on approval; other hosts cannot reuse the upload', async () => {
+  await identity()
+  const host = await value(`SELECT register_user('videohost','password123','Video Host') AS value`)
+  const url = 'https://storage.test/host-tour.mp4'
+  const poster = 'https://storage.test/host-tour.jpg'
+  await db.exec('RESET ROLE')
+  await db.query(`INSERT INTO property_video_uploads(id,owner_id,path,url,poster_url,size_bytes,ready)
+    VALUES(gen_random_uuid(),$1,'host/video.mp4',$2,$3,100,true)`, [host.user.id,url,poster])
+  await identity(ownerToken)
+  await assert.rejects(db.query('SELECT set_hotel_video($1,$2,$3)', [hotel,url,poster]), /Not authorized/)
+  await identity(host.session_token)
+  const application = await value(`INSERT INTO accommodation_applications(applicant_id,property_name,city,video_url,video_poster_url)
+    VALUES($1,'Video Farm','Duhok',$2,$3) RETURNING id AS value`, [host.user.id,url,poster])
+  await assert.rejects(db.query('SELECT approve_accommodation($1)', [application]), /Not authorized/)
+  await identity(adminToken)
+  const property = await value('SELECT approve_accommodation($1) AS value', [application])
+  assert.equal(await value('SELECT approve_accommodation($1) AS value', [application]), property)
+  const saved = (await db.query('SELECT video_url,video_poster_url,images FROM hotels WHERE id=$1',[property])).rows[0]
+  assert.deepEqual(saved, { video_url: url, video_poster_url: poster, images: [poster] })
+  await identity()
+  assert.equal((await db.query('SELECT video_url FROM hotels WHERE id=$1',[property])).rows[0].video_url, url)
+})
+
+test('video reservations enforce daily limits, size limits and storage write isolation', async () => {
+  await identity()
+  const host = await value(`SELECT register_user('quotahost','password123','Quota Host') AS value`)
+  await db.exec('RESET ROLE; SET ROLE service_role')
+  for (let i=0; i<10; i++) {
+    await db.query(`SELECT reserve_property_video(gen_random_uuid(),$1,$2,$2,$2,100)`, [host.user.id,`quota/${i}`])
+  }
+  await assert.rejects(db.query(`SELECT reserve_property_video(gen_random_uuid(),$1,'overflow','overflow','overflow',100)`,[host.user.id]), /VIDEO_UPLOAD_LIMIT/)
+  await db.exec('RESET ROLE')
+  await assert.rejects(db.query(`INSERT INTO property_video_uploads(id,owner_id,path,url,poster_url,size_bytes)
+    VALUES(gen_random_uuid(),$1,'oversize','oversize','poster',52428801)`,[host.user.id]), /check constraint/)
+  const bucket = (await db.query(`SELECT file_size_limit,allowed_mime_types FROM storage.buckets WHERE id='property-videos'`)).rows[0]
+  assert.equal(Number(bucket.file_size_limit), 52428800)
+  assert.deepEqual(bucket.allowed_mime_types, ['video/mp4','video/webm','image/jpeg'])
+  await identity(host.session_token)
+  await assert.rejects(db.query(`INSERT INTO storage.objects(bucket_id,name) VALUES('property-videos','untrusted.mp4')`), /permission denied|row-level security/)
+})
+
 test('reconciled security migrations preserve existing sessions, reservations and verification state', async () => {
   await db.exec('RESET ROLE')
   const tables = ['private.app_sessions', 'private.login_attempts', 'private.booking_notifications',

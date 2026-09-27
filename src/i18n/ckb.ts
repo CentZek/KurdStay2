@@ -1,5 +1,7 @@
 import { bookingMessages } from './bookingMessages'
+import { videoTranslations } from './video'
 const ku = {
+  video: videoTranslations.ckb,
   ux: {
     navigation: 'ڕێنیشاندەری سەرەکی', menu: 'کردنەوە یان داخستنی لیست', listProperty: 'شوێنی مانەوەکەت زیاد بکە',
     discover: 'هوتێل و کێڵگە و پشووی کۆتایی هەفتە', heroStart: 'مانەوەی داهاتووت', heroAccent: 'تایبەت بێت.',

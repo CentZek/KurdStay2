@@ -13,5 +13,8 @@ verify_jwt = false
 [functions.property-images]
 verify_jwt = false
 
+[functions.property-videos]
+verify_jwt = false
+
 [functions.whatsapp-notify]
 verify_jwt = false

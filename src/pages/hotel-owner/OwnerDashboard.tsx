@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { Building2, Bed, Calendar, CalendarCheck, TrendingUp, Users, Image, X, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import VideoUploader from '../../components/VideoUploader'
+import type { PropertyVideoValue } from '../../lib/propertyVideo'
 import { formatDate } from '../../lib/locale'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts'
 
@@ -14,6 +16,8 @@ interface Hotel {
   status: string
   currency: string
   images: string[]
+  video_url?: string | null
+  video_poster_url?: string | null
 }
 
 interface Booking {
@@ -46,6 +50,7 @@ export default function OwnerDashboard() {
   const [propertyFilter, setPropertyFilter] = useState('')
   const [error, setError] = useState('')
   const [imageSaving, setImageSaving] = useState(false)
+  const [videoBusy, setVideoBusy] = useState(false)
   const [newImageUrl, setNewImageUrl] = useState('')
 
   useEffect(() => {
@@ -67,7 +72,7 @@ export default function OwnerDashboard() {
     {
       const { data: hotelsData, error: hotelError } = await supabase
         .from('hotels')
-        .select('id, name, city, status, currency, images')
+        .select('id, name, city, status, currency, images, video_url, video_poster_url')
         .or(hotelIds.length ? `owner_id.eq.${profile!.id},id.in.(${hotelIds.join(',')})` : `owner_id.eq.${profile!.id}`)
       if (hotelError) { setError(t('common.errorOccurred')); setLoading(false); return }
       hotelsList = hotelsData || []
@@ -95,7 +100,7 @@ export default function OwnerDashboard() {
   }
 
   async function addImage() {
-    if (!selectedHotel || !newImageUrl.trim() || imageSaving) return
+    if (!selectedHotel || !newImageUrl.trim() || imageSaving || videoBusy) return
     try { if (!['https:', 'http:'].includes(new URL(newImageUrl.trim()).protocol)) return } catch { setError(t('common.errorOccurred')); return }
     const updatedImages = [...(selectedHotel.images || []), newImageUrl.trim()]
     setImageSaving(true)
@@ -108,7 +113,7 @@ export default function OwnerDashboard() {
   }
 
   async function removeImage(index: number) {
-    if (!selectedHotel) return
+    if (!selectedHotel || imageSaving || videoBusy) return
     const updatedImages = selectedHotel.images.filter((_, i) => i !== index)
     setImageSaving(true)
     const { error: saveError } = await supabase.rpc('set_hotel_images', { p_hotel: selectedHotel.id, p_images: updatedImages })
@@ -116,6 +121,19 @@ export default function OwnerDashboard() {
     if (saveError) { setError(t('common.errorOccurred')); return }
     setSelectedHotel({ ...selectedHotel, images: updatedImages })
     setHotels(prev => prev.map(h => h.id === selectedHotel.id ? { ...h, images: updatedImages } : h))
+  }
+
+  async function saveVideo(video: PropertyVideoValue | null) {
+    if (!selectedHotel) throw new Error('video.saveFailed')
+    const { error: saveError } = await supabase.rpc('set_hotel_video', {
+      p_hotel: selectedHotel.id, p_url: video?.url || null, p_poster: video?.poster || null,
+    })
+    if (saveError) throw new Error('video.saveFailed')
+    const useVideoCover = !selectedHotel.images?.length || (selectedHotel.images.length === 1 && selectedHotel.images[0] === selectedHotel.video_poster_url)
+    const changes = { video_url: video?.url || null, video_poster_url: video?.poster || null,
+      images: video && useVideoCover ? [video.poster] : selectedHotel.images || [] }
+    setSelectedHotel({ ...selectedHotel, ...changes })
+    setHotels(prev => prev.map(h => h.id === selectedHotel.id ? { ...h, ...changes } : h))
   }
 
   if (profile?.role !== 'hotel_owner') {
@@ -359,7 +377,7 @@ export default function OwnerDashboard() {
                   className="text-gray-500 hover:text-primary-600 transition-colors flex items-center gap-1.5 text-xs font-medium"
                 >
                   <Image className="w-3.5 h-3.5" />
-                  {t('owner.managePhotos')}
+                  {t('video.media')}
                 </button>
               </div>
 
@@ -393,11 +411,11 @@ export default function OwnerDashboard() {
 
       {/* Image Management Modal */}
       {showImageModal && selectedHotel && (
-        <div role="dialog" aria-modal="true" aria-label={t('owner.hotelPhotos')} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div role="dialog" aria-modal="true" aria-label={t('video.media')} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 m-4 shadow-xl">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">{t('owner.hotelPhotosTitle', { name: selectedHotel.name })}</h2>
-              <button aria-label={t('common.cancel')} onClick={() => { setShowImageModal(false); setError('') }}>
+              <h2 className="text-lg font-semibold text-gray-900">{t('video.media')} · {selectedHotel.name}</h2>
+              <button disabled={videoBusy} aria-label={t('common.cancel')} onClick={() => { setShowImageModal(false); setError('') }}>
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
@@ -411,7 +429,7 @@ export default function OwnerDashboard() {
                     <img src={img} alt={t('owner.photoAlt', { n: i + 1 })} className="w-full h-full object-cover" />
                     <button
                       onClick={() => removeImage(i)}
-                      disabled={imageSaving}
+                      disabled={imageSaving || videoBusy}
                       aria-label={t('owner.deletePhoto', { n: i + 1 })}
                       className="absolute top-2 end-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center opacity-100 transition-opacity"
                     >
@@ -439,7 +457,7 @@ export default function OwnerDashboard() {
               />
               <button
                 onClick={addImage}
-                disabled={!newImageUrl.trim() || imageSaving}
+                disabled={!newImageUrl.trim() || imageSaving || videoBusy}
                 className="bg-primary-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
@@ -447,6 +465,8 @@ export default function OwnerDashboard() {
               </button>
             </div>
             <p className="mt-2 text-xs text-gray-400">{t('owner.galleryHelp')}</p>
+            <VideoUploader key={selectedHotel.id} value={selectedHotel.video_url && selectedHotel.video_poster_url ? { url: selectedHotel.video_url, poster: selectedHotel.video_poster_url } : null}
+              onChange={saveVideo} onBusyChange={setVideoBusy} disabled={imageSaving} />
           </div>
         </div>
       )}
