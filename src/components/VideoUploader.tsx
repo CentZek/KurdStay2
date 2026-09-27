@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, Video, X, RefreshCw, Check, Loader2 } from 'lucide-react'
-import { Upload as TusUpload } from 'tus-js-client'
+import { Upload as TusUpload } from '../vendor/tus/tus.js'
 import { functionHeaders } from '../lib/session'
 import { createVideoPoster, videoFileError, type PropertyVideoValue } from '../lib/propertyVideo'
 import PropertyVideo from './PropertyVideo'

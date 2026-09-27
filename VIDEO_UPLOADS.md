@@ -17,6 +17,13 @@ into English, Arabic, Sorani and Bahdini.
 
 ## Deploy before publishing the frontend
 
+The browser upload client is committed in `src/vendor/tus/`; deployment no
+longer requires installing `tus-js-client`. Sync that folder together with
+`VideoUploader.tsx`, `package.json` and `package-lock.json`, then run
+`npm run build`. If Bolt still reports an import of `"tus-js-client"` from
+`VideoUploader.tsx`, it is building the old component: the current import is
+`../vendor/tus/tus.js`. Do not add the package to Rollup's `external` list.
+
 1. Apply `supabase/migrations/20260927170000_property_videos.sql` through the
    existing Supabase migration workflow. This adds nullable video fields, the
    `property-videos` bucket, upload reservations and the owner/approval RPCs.

@@ -1,0 +1,2 @@
+# Keep the generated bundle's recorded checksum stable across platforms.
+src/vendor/tus/tus.js text eol=lf

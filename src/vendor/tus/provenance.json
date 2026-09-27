@@ -1,0 +1,13 @@
+{
+  "source": "https://github.com/tus/tus-js-client",
+  "version": "4.3.1",
+  "esbuild": "0.25.12",
+  "dependencies": {
+    "js-base64": "3.9.4",
+    "querystringify": "2.2.0",
+    "requires-port": "1.0.0",
+    "tus-js-client": "4.3.1",
+    "url-parse": "1.5.10"
+  },
+  "sha256": "036690c5c243378567b8c121d1beb9aa7436bfe6cb04526a471742e70f8c0103"
+}
