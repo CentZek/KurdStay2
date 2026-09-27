@@ -183,10 +183,12 @@ export default function HomePage() {
           </div>
         </div>
         <div className="search-wrap" id="stay-search">
-          <form onSubmit={handleSearch} className="stay-search">
-            <div className="search-topline"><h2>{t('ux.findStay')}</h2><span><MapPin size={14}/>{t('ux.region')}</span></div>
-            <div className="property-tabs" role="group" aria-label={t('search.filterBy')}>
-              {propertyTypes.map(pt => <button key={pt.value} type="button" aria-pressed={propertyType === pt.value} onClick={() => setPropertyType(pt.value)} className={propertyType === pt.value ? 'selected' : ''}><pt.icon size={17}/>{t(pt.labelKey)}</button>)}
+          <form onSubmit={handleSearch} className="stay-search" aria-labelledby="stay-search-heading">
+            <div className="search-topline">
+              <h2 id="stay-search-heading">{t('ux.findStay')}</h2>
+              <div className="property-tabs" role="group" aria-label={t('search.filterBy')}>
+                {propertyTypes.map(pt => <button key={pt.value} type="button" aria-pressed={propertyType === pt.value} onClick={() => setPropertyType(pt.value)} className={propertyType === pt.value ? 'selected' : ''}><pt.icon size={17}/>{t(pt.labelKey)}</button>)}
+              </div>
             </div>
             <div className="search-fields">
               <label className="search-field destination-field"><span><MapPin size={15}/>{t('common.location')}</span>
@@ -204,7 +206,7 @@ export default function HomePage() {
               <label className="search-field"><span><Users size={15}/>{t('common.guests')}</span>
                 <select value={guests} onChange={e => setGuests(e.target.value)}>{Array.from({length: 10}, (_, i) => i + 1).map(n => <option key={n} value={n}>{t('common.guestCount', { count: n })}</option>)}</select>
               </label>
-              <button type="submit" className="search-submit"><Search size={19}/>{t('common.search')}<ArrowRight size={17}/></button>
+              <button type="submit" className="search-submit"><Search size={19} aria-hidden="true"/>{t('common.search')}</button>
             </div>
           </form>
           <div className="search-note"><Clock size={15}/><span>{t('ux.flexibleDates')}</span></div>

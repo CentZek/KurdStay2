@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { LANGUAGES, changeLanguage } from '../i18n'
 import { useAuth } from '../context/AuthContext'
-import { Globe, Menu, X, User } from 'lucide-react'
+import { ChevronDown, Globe, Menu, X, User } from 'lucide-react'
 
 export function BrandLogo() {
   return <span className="brand" dir="ltr">
@@ -68,22 +68,23 @@ export default function Header() {
             <BrandLogo />
           </Link>
 
-          <nav aria-label={t('ux.navigation')} className="hidden md:flex items-center gap-6">
-            <Link to="/" className="text-gray-300 hover:text-primary-400 transition-colors text-sm font-medium">
+          <nav aria-label={t('ux.navigation')} className="desktop-navigation hidden xl:flex items-center gap-2">
+            <NavLink to="/" end className="header-control">
               {t('common.home')}
-            </Link>
-            <NavLink to="/search" className="header-explore">{t('common.browseProperties')}</NavLink>
-            <NavLink to="/add-accommodation" className="header-list">{t('ux.listProperty')}</NavLink>
+            </NavLink>
+            <NavLink to="/search" className="header-control">{t('common.browseProperties')}</NavLink>
+            <NavLink to="/add-accommodation" className="header-control header-list">{t('ux.listProperty')}</NavLink>
 
-            <div className="relative">
+            <div className="relative header-language">
               <button
                 onClick={() => setLangMenuOpen(!langMenuOpen)}
                 aria-expanded={langMenuOpen}
                 aria-label={t('common.language')}
-                className="flex items-center gap-1.5 text-gray-300 hover:text-primary-400 transition-colors text-sm font-medium"
+                className="header-control"
               >
                 <Globe className="w-4 h-4" />
                 {languages.find(l => l.code === i18n.language)?.name}
+                <ChevronDown className="w-3 h-3" aria-hidden="true" />
               </button>
               {langMenuOpen && (
                 <div className="absolute top-full mt-2 end-0 bg-gray-900 rounded-lg shadow-xl border border-white/10 py-1 min-w-[140px] animate-scale-in">
@@ -103,43 +104,32 @@ export default function Header() {
             </div>
 
             {user && profile ? (
-              <div className="flex items-center gap-3">
-                {profile.role === 'customer' ? (
-                  <Link
-                    to="/profile"
-                    className="text-gray-300 hover:text-primary-400 transition-colors text-sm font-medium"
-                  >
-                    {t('common.myProfile')}
-                  </Link>
-                ) : (
-                  <Link
-                    to={getDashboardLink()}
-                    className="text-gray-300 hover:text-primary-400 transition-colors text-sm font-medium"
-                  >
-                    {t('common.dashboard')}
-                  </Link>
-                )}
+              <div className="flex items-center gap-2">
+                <NavLink
+                  to={profile.role === 'customer' ? '/profile' : getDashboardLink()}
+                  className="header-control header-account"
+                >
+                  <User className="w-4 h-4" aria-hidden="true" />
+                  {t(profile.role === 'customer' ? 'common.myProfile' : 'common.dashboard')}
+                </NavLink>
                 <button
                   onClick={handleSignOut}
-                  className="text-gray-300 hover:text-primary-400 transition-colors text-sm font-medium"
+                  className="header-control"
                 >
                   {t('common.logout')}
                 </button>
-                <div className="w-8 h-8 bg-primary-500/20 rounded-full flex items-center justify-center ring-1 ring-primary-500/40">
-                  <User className="w-4 h-4 text-primary-400" />
-                </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <Link
                   to="/login"
-                  className="text-gray-300 hover:text-primary-400 transition-colors text-sm font-medium"
+                  className="header-control"
                 >
                   {t('common.login')}
                 </Link>
                 <Link
                   to="/register"
-                  className="bg-primary-500 text-gray-950 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary-400 transition-colors"
+                  className="header-control header-register"
                 >
                   {t('common.register')}
                 </Link>
@@ -148,7 +138,7 @@ export default function Header() {
           </nav>
 
           <button
-            className="md:hidden p-2 text-gray-200"
+            className="xl:hidden p-2 text-gray-200"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-expanded={mobileMenuOpen}
             aria-controls="mobile-navigation"
@@ -159,14 +149,14 @@ export default function Header() {
         </div>
 
         {mobileMenuOpen && (
-          <nav id="mobile-navigation" aria-label={t('ux.navigation')} className="mobile-navigation md:hidden border-t border-white/10 py-4">
+          <nav id="mobile-navigation" aria-label={t('ux.navigation')} className="mobile-navigation xl:hidden border-t border-white/10 py-4">
             <div className="flex flex-col gap-3">
               <Link to="/" className="text-gray-300 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>
                 {t('common.home')}
               </Link>
               <Link to="/search" className="text-gray-300 py-2 text-sm font-medium">{t('common.browseProperties')}</Link>
               <Link to="/add-accommodation" className="text-primary-300 py-2 text-sm font-medium">{t('ux.listProperty')}</Link>
-              <div className="flex gap-2 py-2">
+              <div className="flex flex-wrap gap-2 py-2">
                 {languages.map(lang => (
                   <button
                     key={lang.code}
