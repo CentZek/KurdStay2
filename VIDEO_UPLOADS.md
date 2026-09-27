@@ -1,5 +1,8 @@
 # Property video release
 
+For the subsequent social-link option and assistant release, follow
+[CHATBOT_AND_SOCIAL_VIDEO.md](CHATBOT_AND_SOCIAL_VIDEO.md) as well.
+
 Hosts can upload one MP4 or WebM video (maximum 50 MiB) on the Photos & video
 step of a property application. A decoded frame becomes the cover when no photos
 are supplied. Owners manage videos from Photos & video on their dashboard;

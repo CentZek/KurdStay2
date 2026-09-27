@@ -9,14 +9,14 @@ export default function PropertyGallery({ images, video, name }: { images: strin
   const { t } = useTranslation()
   const [activeImage, setActiveImage] = useState(0)
   const [showVideo, setShowVideo] = useState(false)
-  const photos = images.length ? images : video ? [video.poster] : []
+  const photos = images.length ? images : video?.poster ? [video.poster] : []
   const index = Math.min(activeImage, Math.max(0, photos.length - 1))
   return <section className="property-gallery-section" aria-label={t('video.media')}>
     {video && <div className="property-media-switch" role="group" aria-label={t('video.media')}>
-      <button type="button" aria-pressed={!showVideo} onClick={() => setShowVideo(false)}><Images size={17} />{t('video.photos')}<span>{photos.length}</span></button>
+      <button type="button" disabled={!photos.length} aria-pressed={!showVideo && !!photos.length} onClick={() => setShowVideo(false)}><Images size={17} />{t('video.photos')}<span>{photos.length}</span></button>
       <button type="button" aria-pressed={showVideo} onClick={() => setShowVideo(true)}><Play size={17} />{t('video.watch')}</button>
     </div>}
-    {showVideo && video ? <PropertyVideo key={video.url} value={video} title={name} startOnOpen /> :
+    {(showVideo || !photos.length) && video ? <PropertyVideo key={`${video.url}-${showVideo}`} value={video} title={name} startOnOpen={showVideo} /> :
       <div className="property-photo-stage">
         {photos[index] && <img src={optimizeImageUrl(photos[index], 1200)} srcSet={getImageSrcSet(photos[index], [600, 900, 1200, 1800])}
           sizes="(max-width: 640px) 100vw, (max-width: 1280px) 90vw, 1200px" alt={name} decoding="async" />}
@@ -29,7 +29,7 @@ export default function PropertyGallery({ images, video, name }: { images: strin
       </div>}
     {(photos.length > 1 || video) && <div className="property-media-thumbnails">
       {video && <button type="button" className="property-video-thumbnail" aria-label={t('video.watch')} aria-pressed={showVideo} onClick={() => setShowVideo(true)}>
-        <img src={video.poster} alt="" loading="lazy" /><Play size={23} fill="currentColor" /></button>}
+        {video.poster && <img src={video.poster} alt="" loading="lazy" />}<Play size={23} fill="currentColor" /></button>}
       {photos.map((url, i) => <button key={`${url}-${i}`} type="button" aria-label={t('video.photo', { n: i + 1 })}
         aria-pressed={!showVideo && index === i} onClick={() => { setShowVideo(false); setActiveImage(i) }}>
         <img src={optimizeImageUrl(url, 160)} alt="" loading="lazy" decoding="async" /></button>)}

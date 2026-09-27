@@ -12,6 +12,7 @@ interface ChatSession {
   customer_phone: string | null
   intent: string | null
   status: 'open' | 'closed'
+  needs_agent: boolean
   created_at: string
   updated_at: string
   last_message?: string
@@ -123,15 +124,16 @@ export default function AdminChats() {
     if (!reply.trim() || !selectedSession || sending) return
     setSending(true)
 
-    await supabase.from('chat_messages').insert({
+    const { error } = await supabase.from('chat_messages').insert({
       session_id: selectedSession,
       role: 'agent',
       content: reply.trim(),
     })
+    if (error) { setSending(false); return }
 
     await supabase
       .from('chat_sessions')
-      .update({ updated_at: new Date().toISOString() })
+      .update({ needs_agent: false, updated_at: new Date().toISOString() })
       .eq('id', selectedSession)
 
     setReply('')
@@ -266,6 +268,7 @@ export default function AdminChats() {
                     <p className="text-xs text-gray-500 truncate mt-0.5">
                       {session.last_message || t('chats.noMessagesYet')}
                     </p>
+                    {session.needs_agent && session.status === 'open' && <p className="text-xs font-semibold text-amber-700 mt-1">{t('assistant.needsAgent')}</p>}
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] text-gray-400">{t('chats.messageCount', { count: session.message_count })}</span>
                       {session.status === 'open' ? (

@@ -53,7 +53,7 @@ export default function BookingPage() {
   const [checkIn, setCheckIn] = useState(validDate(searchParams.get('checkIn') || '') ? searchParams.get('checkIn')! : '')
   const [checkOut, setCheckOut] = useState(validDate(searchParams.get('checkOut') || '') ? searchParams.get('checkOut')! : '')
   const [guests, setGuests] = useState(searchParams.get('guests') || '2')
-  const [rooms, setRooms] = useState('1')
+  const [rooms, setRooms] = useState(() => { const count = Number(searchParams.get('rooms')); return Number.isInteger(count) && count >= 1 && count <= 5 ? String(count) : '1' })
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')

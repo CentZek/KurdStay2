@@ -246,6 +246,75 @@ test('video reservations enforce daily limits, size limits and storage write iso
   await assert.rejects(db.query(`INSERT INTO storage.objects(bucket_id,name) VALUES('property-videos','untrusted.mp4')`), /permission denied|row-level security/)
 })
 
+test('social videos require a managed property, reject unsafe URLs and survive approval', async () => {
+  const url='https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  await identity(ownerToken)
+  await db.query('SELECT set_hotel_social_video($1,$2)',[hotel,url])
+  assert.equal(await value('SELECT social_video_url AS value FROM hotels WHERE id=$1',[hotel]),url)
+  await assert.rejects(db.query('SELECT set_hotel_social_video($1,$2)',[otherHotel,url]),/Not authorized/)
+  for (const unsafe of ['javascript:alert(1)','https://evil.test/video','https://www.youtube.com/watch?v=dQw4w9WgXcQ&redirect=evil']) {
+    await assert.rejects(db.query('SELECT set_hotel_social_video($1,$2)',[hotel,unsafe]),/check constraint/)
+  }
+  await db.query('SELECT set_hotel_video($1,NULL,NULL)',[hotel])
+  assert.equal(await value('SELECT social_video_url AS value FROM hotels WHERE id=$1',[hotel]),null)
+  await identity()
+  const host=await value(`SELECT register_user('socialhost','password123','Social Host') AS value`)
+  await identity(host.session_token)
+  const app=await value(`INSERT INTO accommodation_applications(applicant_id,property_name,city,social_video_url) VALUES($1,'Social Farm','Duhok',$2) RETURNING id AS value`,[host.user.id,url])
+  await identity(adminToken)
+  const id=await value('SELECT approve_accommodation($1) AS value',[app])
+  assert.deepEqual((await db.query('SELECT social_video_url,video_url FROM hotels WHERE id=$1',[id])).rows[0],{social_video_url:url,video_url:null})
+})
+
+test('chat recommendations use every night, real stock, totals, strict filters and distinct properties', async () => {
+  await db.exec('RESET ROLE')
+  const ids=[]; const rooms=[]
+  for(let i=0;i<5;i++) {
+    ids.push(await value(`INSERT INTO hotels(name,location,city,profit_margin_percentage,currency,amenities,property_type) VALUES($1,'Center','Chat City',10,'USD',ARRAY['Pool'],'farm') RETURNING id AS value`,[`Chat Farm ${i}`]))
+    rooms.push(await value(`INSERT INTO room_types(hotel_id,name,max_guests,base_price,amenities) VALUES($1,'Suite',2,$2,ARRAY['Accessible']) RETURNING id AS value`,[ids[i],100+i*10]))
+    await db.query(`INSERT INTO room_availability(room_type_id,date,available_rooms) SELECT $1,d::date,2 FROM generate_series(current_date+30,current_date+31,interval '1 day') d`,[rooms[i]])
+  }
+  // First property has a sold-out night after an existing pending reservation.
+  await db.query(`INSERT INTO bookings(hotel_id,room_type_id,customer_name,customer_email,check_in_date,check_out_date,guests,rooms,base_price_total,margin_percentage,margin_amount,final_price_total,status)
+    VALUES($1,$2,'Booked','booked@example.test',current_date+30,current_date+31,4,2,200,10,20,220,'pending')`,[ids[0],rooms[0]])
+  // Another property lacks a complete date range; it must never be recommended.
+  await db.query('DELETE FROM room_availability WHERE room_type_id=$1 AND date=current_date+31',[rooms[4]])
+  const duplicate=await value(`INSERT INTO room_types(hotel_id,name,max_guests,base_price) VALUES($1,'Premium Suite',2,300) RETURNING id AS value`,[ids[1]])
+  await db.query(`INSERT INTO room_availability(room_type_id,date,available_rooms) SELECT $1,d::date,2 FROM generate_series(current_date+30,current_date+31,interval '1 day') d`,[duplicate])
+  await db.query('UPDATE room_availability SET base_price_override=150 WHERE room_type_id=$1 AND date=current_date+30',[rooms[1]])
+  await identity()
+  const sql=`SELECT find_chat_stays('Chat City',current_date+30,current_date+32,4,2,$1,$2,$3,$4) AS value`
+  const matches=await value(sql,[null,null,null,[]])
+  assert.equal(matches.length,3)
+  assert.equal(new Set(matches.map(s=>s.id)).size,3)
+  assert.ok(matches.every(s=>! [ids[0],ids[4]].includes(s.id)))
+  const override=matches.find(s=>s.id===ids[1])
+  assert.equal(override.total,572) // (150 + 110) * 2 rooms * 1.10
+  assert.equal(override.roomId,rooms[1])
+  assert.equal(matches[0].total,528)
+  assert.deepEqual(await value(sql,['hotel',null,null,[]]),[])
+  assert.deepEqual(await value(sql,[null,500,'USD',[]]),[])
+  assert.deepEqual(await value(sql,[null,1000,'IQD',[]]),[])
+  assert.deepEqual(await value(sql,[null,null,null,['Beach']]),[])
+  assert.equal((await value(sql,['farm',600,'USD',['pool','accessible']])).length,3)
+  assert.ok((await value('SELECT chat_stay_catalog() AS value')).amenities.includes('Accessible'))
+  await assert.rejects(value(sql,[null,500,null,[]]),/INVALID_FILTERS/)
+  await assert.rejects(value(`SELECT find_chat_stays('Chat City',current_date-1,current_date+1,2) AS value`),/INVALID_DATES/)
+})
+
+test('AI quota and human handoff are private to the browser that created the chat', async () => {
+  const secret='chat-test-browser-secret-at-least-thirty-two-characters'
+  await identity('',secret)
+  const chat=await value(`INSERT INTO chat_sessions(intent) VALUES('availability') RETURNING id AS value`)
+  await db.query('SELECT request_chat_agent($1)',[chat])
+  assert.equal(await value('SELECT needs_agent AS value FROM chat_sessions WHERE id=$1',[chat]),true)
+  for(let i=0;i<60;i++) assert.equal(await value('SELECT claim_chat_turn($1) AS value',[chat]),true)
+  assert.equal(await value('SELECT claim_chat_turn($1) AS value',[chat]),false)
+  await identity()
+  await assert.rejects(value('SELECT claim_chat_turn($1) AS value',[chat]),/Not authorized/)
+  await assert.rejects(db.query('SELECT request_chat_agent($1)',[chat]),/Not authorized/)
+})
+
 test('reconciled security migrations preserve existing sessions, reservations and verification state', async () => {
   await db.exec('RESET ROLE')
   const tables = ['private.app_sessions', 'private.login_attempts', 'private.booking_notifications',

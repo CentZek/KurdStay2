@@ -1,5 +1,8 @@
 BEGIN;
 
+-- Bolt also recorded this schema as 20260927135620. Reconcile either history
+-- without dropping uploads, listing attachments, or existing reservations.
+
 -- Uploads are authorized by the Edge Function using our opaque session tokens.
 -- No client receives storage write/delete access or a service-role credential.
 INSERT INTO storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
@@ -7,7 +10,7 @@ VALUES ('property-videos', 'property-videos', true, 52428800, ARRAY['video/mp4',
 ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 52428800,
   allowed_mime_types = ARRAY['video/mp4','video/webm','image/jpeg'];
 
-CREATE TABLE public.property_video_uploads (
+CREATE TABLE IF NOT EXISTS public.property_video_uploads (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES public.profiles(id),
   path text NOT NULL UNIQUE,
@@ -17,12 +20,12 @@ CREATE TABLE public.property_video_uploads (
   ready boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX property_video_uploads_owner_created ON public.property_video_uploads(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS property_video_uploads_owner_created ON public.property_video_uploads(owner_id, created_at);
 ALTER TABLE public.property_video_uploads ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.property_video_uploads FROM anon, authenticated;
 GRANT ALL ON public.property_video_uploads TO service_role;
 
-CREATE FUNCTION public.reserve_property_video(p_id uuid, p_owner uuid, p_path text, p_url text, p_poster text, p_size integer)
+CREATE OR REPLACE FUNCTION public.reserve_property_video(p_id uuid, p_owner uuid, p_path text, p_url text, p_poster text, p_size integer)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   -- Serialize reservations per user so concurrent requests cannot bypass quota.
@@ -36,10 +39,10 @@ END $$;
 REVOKE ALL ON FUNCTION public.reserve_property_video(uuid,uuid,text,text,text,integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reserve_property_video(uuid,uuid,text,text,text,integer) TO service_role;
 
-ALTER TABLE public.hotels ADD COLUMN video_url text REFERENCES public.property_video_uploads(url), ADD COLUMN video_poster_url text;
-ALTER TABLE public.accommodation_applications ADD COLUMN video_url text REFERENCES public.property_video_uploads(url), ADD COLUMN video_poster_url text;
+ALTER TABLE public.hotels ADD COLUMN IF NOT EXISTS video_url text REFERENCES public.property_video_uploads(url), ADD COLUMN IF NOT EXISTS video_poster_url text;
+ALTER TABLE public.accommodation_applications ADD COLUMN IF NOT EXISTS video_url text REFERENCES public.property_video_uploads(url), ADD COLUMN IF NOT EXISTS video_poster_url text;
 
-CREATE FUNCTION public.guard_property_video() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.guard_property_video() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE media property_video_uploads%ROWTYPE;
 BEGIN
@@ -56,12 +59,14 @@ BEGIN
   RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION public.guard_property_video() FROM PUBLIC;
+DROP TRIGGER IF EXISTS hotels_video_guard ON public.hotels;
 CREATE TRIGGER hotels_video_guard BEFORE INSERT OR UPDATE ON public.hotels
 FOR EACH ROW EXECUTE FUNCTION public.guard_property_video();
+DROP TRIGGER IF EXISTS applications_video_guard ON public.accommodation_applications;
 CREATE TRIGGER applications_video_guard BEFORE INSERT OR UPDATE ON public.accommodation_applications
 FOR EACH ROW EXECUTE FUNCTION public.guard_property_video();
 
-CREATE FUNCTION public.set_hotel_video(p_hotel uuid, p_url text DEFAULT NULL, p_poster text DEFAULT NULL) RETURNS void
+CREATE OR REPLACE FUNCTION public.set_hotel_video(p_hotel uuid, p_url text DEFAULT NULL, p_poster text DEFAULT NULL) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF NOT public.app_manages_hotel(p_hotel) THEN RAISE EXCEPTION 'Not authorized' USING ERRCODE = '42501'; END IF;

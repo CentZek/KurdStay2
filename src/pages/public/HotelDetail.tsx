@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { MapPin, Users, Wifi, Car, Coffee, Dumbbell, Navigation, AlertCircle, Tv, AirVent, Waves, UtensilsCrossed, Sparkles, ShowerHead, Phone, Bath, BedDouble, Briefcase, Baby, Cigarette, CigaretteOff, ParkingCircle, Shirt, Snowflake, Sun, TreePine, Mountain, Eye, DoorOpen, Flame, Globe, HandPlatter, IceCream, Key, Lamp, Languages, Lock, Luggage, Mail, Map, Maximize, Music, PawPrint, Plane, Power, Receipt, Refrigerator, School, Shield, ShoppingBag, Star, Sunrise, Thermometer, Ticket, Timer, Utensils, Volume2, WashingMachine, Wind, Wine, Zap, CircleDot, Home, Sofa, CookingPot, Gamepad2, Scissors, Heart, Building2, Landmark, Armchair, Stethoscope, Clock, Droplets, Heater, Bed, MonitorSmartphone, Router, Vault } from 'lucide-react'
 import { format, addDays, parseISO, isValid } from 'date-fns'
 import { supabase } from '../../lib/supabase'
+import { videoFromRow } from '../../lib/socialVideo'
 import PropertyGallery from '../../components/PropertyGallery'
 import { amenityLabel } from '../../lib/amenities'
 
@@ -16,6 +17,7 @@ interface Hotel {
   description: string
   address: string
   images: string[]
+  social_video_url?: string | null
   video_url?: string | null
   video_poster_url?: string | null
   amenities: string[]
@@ -141,7 +143,7 @@ export default function HotelDetail() {
     setLoading(true)
     setError('')
     const [hotelRes, roomsRes] = await Promise.all([
-      supabase.from('hotels').select('id, name, location, city, country, description, address, images, video_url, video_poster_url, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
+      supabase.from('hotels').select('id, name, location, city, country, description, address, images, video_url, video_poster_url, social_video_url, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
       supabase.from('room_types').select('*').eq('hotel_id', id),
     ])
     if (hotelRes.error || roomsRes.error) {
@@ -196,7 +198,7 @@ export default function HotelDetail() {
 
   const images = hotel.images?.length > 0
     ? hotel.images
-    : hotel.video_poster_url ? [hotel.video_poster_url] : [
+    : hotel.social_video_url ? [] : hotel.video_poster_url ? [hotel.video_poster_url] : [
         'https://images.pexels.com/photos/258154/pexels-photo-258154.jpeg?auto=compress&cs=tinysrgb&w=800',
         'https://images.pexels.com/photos/1134176/pexels-photo-1134176.jpeg?auto=compress&cs=tinysrgb&w=800',
         'https://images.pexels.com/photos/271624/pexels-photo-271624.jpeg?auto=compress&cs=tinysrgb&w=800',
@@ -206,7 +208,7 @@ export default function HotelDetail() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <PropertyGallery key={hotel.id} name={hotel.name} images={images}
-        video={hotel.video_url && hotel.video_poster_url ? { url: hotel.video_url, poster: hotel.video_poster_url } : null} />
+        video={videoFromRow(hotel)} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Info */}
@@ -263,13 +265,14 @@ export default function HotelDetail() {
               </div>
             ) : (
               <div className="space-y-4">
-                {roomTypes.map(room => (
+                {[...roomTypes].sort((a,b)=>Number(b.id===searchParams.get('room'))-Number(a.id===searchParams.get('room'))).map(room => (
                   <div
                     key={room.id}
                     className="bg-white/5 border border-white/10 rounded-2xl p-5 hover:border-primary-500/40 hover:bg-white/[0.07] transition-all"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="flex-1">
+                        {room.id===searchParams.get('room') && <p className="text-xs text-primary-300 mb-2">{t('assistant.selectedRoom')}</p>}
                         <h3 className="font-semibold text-white">{room.name}</h3>
                         {room.description && (
                           <p className="text-sm text-gray-400 mt-1">{room.description}</p>

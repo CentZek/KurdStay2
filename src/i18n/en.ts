@@ -1,7 +1,10 @@
+import { assistantTranslations, socialVideoTranslations } from './assistant'
 import { bookingMessages } from './bookingMessages'
 import { videoTranslations } from './video'
 const en = {
   video: videoTranslations.en,
+  assistant: assistantTranslations.en,
+  socialVideo: socialVideoTranslations.en,
   ux: {
     navigation: 'Main navigation', menu: 'Open or close menu', listProperty: 'List your property',
     discover: 'HOTELS, FARMS & WEEKEND ESCAPES', heroStart: 'Stay somewhere', heroAccent: 'extraordinary.',

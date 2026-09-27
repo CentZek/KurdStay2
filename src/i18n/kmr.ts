@@ -1,7 +1,10 @@
+import { assistantTranslations, socialVideoTranslations } from './assistant'
 import { bookingMessages } from './bookingMessages'
 import { videoTranslations } from './video'
 const kmr = {
   video: videoTranslations.kmr,
+  assistant: assistantTranslations.kmr,
+  socialVideo: socialVideoTranslations.kmr,
   ux: {
     navigation: "ڕێنیشاندانا سەرەکی", menu: 'ڤەکرن یان گرتنا لیستێ', listProperty: 'موڵکا خۆ زێدە بکە',
     discover: 'هوتێل، مزراعە و پشووێن کۆتایا هەفتێ', heroStart: 'ل جهەکێ بمینە', heroAccent: "کو تایبەت بیت.",

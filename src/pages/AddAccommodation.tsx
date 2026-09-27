@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import ImageUploader from '../components/ImageUploader'
-import VideoUploader from '../components/VideoUploader'
+import PropertyMediaEditor from '../components/PropertyMediaEditor'
+import { videoColumns } from '../lib/socialVideo'
 import type { PropertyVideoValue } from '../lib/propertyVideo'
 import AmenityPicker from '../components/AmenityPicker'
 import {
@@ -89,9 +90,8 @@ export default function AddAccommodation() {
       latitude: form.latitude ? parseFloat(form.latitude) : null,
       longitude: form.longitude ? parseFloat(form.longitude) : null,
       amenities,
-      images: images.length ? images : video ? [video.poster] : [],
-      video_url: video?.url || null,
-      video_poster_url: video?.poster || null,
+      images: images.length ? images : video?.poster ? [video.poster] : [],
+      ...videoColumns(video),
       status: 'pending',
     })
 
@@ -197,7 +197,7 @@ export default function AddAccommodation() {
               <h3 className="text-sm font-medium text-gray-700 mb-1">{t('video.media')}</h3>
               <p className="text-xs text-gray-500 mb-4">{t('video.photosHelp')}</p>
               <ImageUploader images={images} onChange={setImages} folder={imageFolder} />
-              <VideoUploader value={video} onChange={setVideo} onBusyChange={setVideoBusy} />
+              <PropertyMediaEditor value={video} onChange={setVideo} onBusyChange={setVideoBusy} />
             </div>
           )}
 

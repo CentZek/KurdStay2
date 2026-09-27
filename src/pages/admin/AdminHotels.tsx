@@ -5,7 +5,8 @@ import { useAuth } from '../../context/AuthContext'
 import { Plus, X, Trash2, MapPin, ChevronLeft, Building2, Image as ImageIcon, Sparkles, Settings2, Globe } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import ImageUploader from '../../components/ImageUploader'
-import VideoUploader from '../../components/VideoUploader'
+import PropertyMediaEditor from '../../components/PropertyMediaEditor'
+import { videoColumns, videoFromRow } from '../../lib/socialVideo'
 import type { PropertyVideoValue } from '../../lib/propertyVideo'
 import AmenityPicker from '../../components/AmenityPicker'
 
@@ -21,6 +22,7 @@ interface Hotel {
   address: string
   country: string
   images: string[]
+  social_video_url?: string | null
   video_url?: string | null
   video_poster_url?: string | null
   amenities: string[]
@@ -105,7 +107,7 @@ export default function AdminHotels() {
       longitude: hotel.longitude != null ? String(hotel.longitude) : '',
     })
     setFormImages(hotel.images || [])
-    setFormVideo(hotel.video_url && hotel.video_poster_url ? { url: hotel.video_url, poster: hotel.video_poster_url } : null)
+    setFormVideo(videoFromRow(hotel))
     setSaveError('')
     setFormAmenities(hotel.amenities || [])
     setCurrentStep('basics')
@@ -144,9 +146,8 @@ export default function AdminHotels() {
       country: form.country,
       profit_margin_percentage: parseFloat(form.profit_margin_percentage),
       owner_id: form.owner_id || null,
-      images: formVideo && (!formImages.length || (formImages.length === 1 && formImages[0] === editingHotel?.video_poster_url)) ? [formVideo.poster] : formImages,
-      video_url: formVideo?.url || null,
-      video_poster_url: formVideo?.poster || null,
+      images: formVideo?.poster && (!formImages.length || (formImages.length === 1 && formImages[0] === editingHotel?.video_poster_url)) ? [formVideo.poster] : formImages,
+      ...videoColumns(formVideo),
       amenities: formAmenities,
       status: form.status,
       property_type: form.property_type,
@@ -455,7 +456,7 @@ export default function AdminHotels() {
                       onChange={setFormImages}
                       folder={imageFolder}
                     />
-                    <VideoUploader value={formVideo} onChange={setFormVideo} onBusyChange={setVideoBusy} />
+                    <PropertyMediaEditor value={formVideo} onChange={setFormVideo} onBusyChange={setVideoBusy} />
                   </div>
                 </div>
               )}

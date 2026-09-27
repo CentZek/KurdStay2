@@ -1,354 +1,175 @@
-import { functionHeaders } from '../lib/session'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { MessageCircle, X, Send, Loader2, Bot, User, Headphones } from 'lucide-react'
+import { MessageCircle, X, Send, Loader2, Sparkles, Headphones, CalendarDays, RotateCcw, MapPin, ArrowUpRight, Building2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { functionHeaders } from '../lib/session'
+import { chatStayUrl, emptyCriteria, type ChatCriteria, type ChatStay } from '../lib/chatSearch'
+import ChatTripForm from './ChatTripForm'
 
-interface Message {
-  role: 'user' | 'assistant' | 'agent'
-  content: string
-  id?: string
-}
-
-type Intent = '' | 'reservation' | 'feedback' | 'availability' | 'list_property' | 'other'
-
-const MENU_OPTIONS = [
-  { id: 'reservation' as Intent, emoji: '📋' },
-  { id: 'feedback' as Intent, emoji: '⭐' },
-  { id: 'availability' as Intent, emoji: '🔍' },
-  { id: 'list_property' as Intent, emoji: '🏨' },
-  { id: 'other' as Intent, emoji: '💬' },
-]
+interface Message { id:string; role:'user'|'assistant'|'agent'; content:string; recommendations?:ChatStay[]; searched?:boolean; suggestions?:string[] }
+type Intent='availability'|'reservation'|'feedback'|'list_property'|'other'
+const message=(role:Message['role'],content:string):Message=>({id:crypto.randomUUID(),role,content})
 
 export default function ChatBot() {
-  const { t, i18n } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [intent, setIntent] = useState<Intent>('')
-  const [showMenu, setShowMenu] = useState(true)
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [liveAgent, setLiveAgent] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const {t,i18n}=useTranslation()
+  const [open,setOpen]=useState(false)
+  const [messages,setMessages]=useState<Message[]>([])
+  const [input,setInput]=useState('')
+  const [intent,setIntent]=useState<Intent>('availability')
+  const [loading,setLoading]=useState(false)
+  const [error,setError]=useState('')
+  const [criteria,setCriteria]=useState<ChatCriteria>(emptyCriteria)
+  const [showTrip,setShowTrip]=useState(false)
+  const [cities,setCities]=useState<string[]>([])
+  const [sessionId,setSessionId]=useState<string|null>(null)
+  const [waiting,setWaiting]=useState(false)
+  const [liveAgent,setLiveAgent]=useState(false)
+  const panel=useRef<HTMLDivElement>(null)
+  const scroller=useRef<HTMLDivElement>(null)
+  const inputRef=useRef<HTMLInputElement>(null)
+  const launcher=useRef<HTMLButtonElement>(null)
+  const request=useRef<AbortController|null>(null)
+  const generation=useRef(0)
+  const busy=useRef(false)
+  const agentActive=useRef(false)
+  const pending=useRef<{history:Message[];trip?:ChatCriteria}|null>(null)
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  function setBusy(value:boolean) { busy.current=value;setLoading(value) }
+  function close() { setOpen(false);setTimeout(()=>launcher.current?.focus(),0) }
+  useEffect(()=>{ if(open)inputRef.current?.focus() },[open])
+  useEffect(()=>{
+    const area=scroller.current
+    if(!area)return
+    const last=messages[messages.length-1]
+    const turns=area.querySelectorAll('.chat-turn')
+    const newest=turns[turns.length-1]
+    area.scrollTop=last?.recommendations?.length && newest && !loading
+      ? area.scrollTop+newest.getBoundingClientRect().top-area.getBoundingClientRect().top-12 : area.scrollHeight
+  },[messages,loading,error])
+  useEffect(()=>{ const escape=(e:KeyboardEvent)=>{if(e.key==='Escape' && open && panel.current?.contains(document.activeElement))close()};document.addEventListener('keydown',escape);return()=>document.removeEventListener('keydown',escape) },[open])
+  useEffect(()=>()=>request.current?.abort(),[])
+  useEffect(()=>{ if(!open)return;let active=true;supabase.rpc('chat_stay_catalog').then(({data})=>{if(active && Array.isArray(data?.cities))setCities(data.cities)});return()=>{active=false} },[open])
 
-  useEffect(() => {
-    if (open && inputRef.current && !showMenu) {
-      inputRef.current.focus()
-    }
-  }, [open, showMenu])
-
-  // HTTP polling carries the validated session/guest secret. Realtime's anon
-  // websocket does not carry these headers and cannot authorize private chats.
-  useEffect(() => {
-    if (!sessionId || !open) return
-    let active = true
-    let timer: number
-    const seen = new Set<string>()
-    async function poll() {
+  // Poll with the browser's private visitor secret, never an anonymous realtime channel.
+  useEffect(()=>{
+    if(!open || !sessionId)return
+    let active=true;let timer:number
+    const poll=async()=>{
       try {
-        const { data } = await supabase.from('chat_messages').select('id, content')
-          .eq('session_id', sessionId).eq('role', 'agent').order('created_at')
-        if (!active) return
-        const incoming = (data || []).filter(message => !seen.has(message.id))
-        incoming.forEach(message => seen.add(message.id))
-        if (incoming.length) {
-          setLiveAgent(true)
-          setMessages(previous => [...previous, ...incoming.filter(message => !previous.some(item => item.id === message.id))
-            .map(message => ({ id: message.id, role: 'agent' as const, content: message.content }))])
-        }
-      } catch { /* Retry after temporary connectivity errors. */ } finally { if (active) timer = window.setTimeout(poll, 3000) }
+        const {data}=await supabase.from('chat_messages').select('id,content').eq('session_id',sessionId).eq('role','agent').order('created_at').abortSignal(AbortSignal.timeout(10000))
+        if(!active || !data?.length)return
+        agentActive.current=true;request.current?.abort();pending.current=null;setError('');setLiveAgent(true);setWaiting(false)
+        setMessages(previous=>{const fresh=data.filter(m=>!previous.some(p=>p.id===m.id));return fresh.length?[...previous,...fresh.map(m=>({...m,role:'agent' as const}))]:previous})
+      } finally { if(active)timer=window.setTimeout(()=>void poll().catch(()=>{}),4000) }
     }
-    poll().catch(() => {})
-    return () => { active = false; window.clearTimeout(timer) }
-  }, [sessionId, open])
+    void poll().catch(()=>{})
+    return()=>{active=false;window.clearTimeout(timer)}
+  },[open,sessionId])
 
-  async function createSession(selectedIntent: Intent) {
-    const { data } = await supabase
-      .from('chat_sessions')
-      .insert({ intent: selectedIntent, status: 'open' })
-      .select('id')
-      .maybeSingle()
-    if (data) {
-      setSessionId(data.id)
-      return data.id
-    }
-    return null
+  async function ensureSession(turn:number,signal?:AbortSignal) {
+    if(sessionId)return sessionId
+    const {data,error}=await supabase.from('chat_sessions').insert({intent,status:'open'}).select('id').abortSignal(signal||AbortSignal.timeout(15000)).single()
+    if(error || !data?.id)throw new Error('assistant.connectionError')
+    if(turn!==generation.current)throw new DOMException('Aborted','AbortError')
+    setSessionId(data.id);return data.id as string
   }
-
-  async function storeMessage(sid: string, role: string, content: string) {
-    await supabase.from('chat_messages').insert({ session_id: sid, role, content })
+  async function store(sid:string,m:Message,signal?:AbortSignal) {
+    const {error}=await supabase.from('chat_messages').insert({id:m.id,session_id:sid,role:m.role==='user'?'customer':m.role==='assistant'?'bot':'agent',content:m.content}).abortSignal(signal||AbortSignal.timeout(15000))
+    if(error && error.code!=='23505')throw new Error('assistant.connectionError')
   }
-
-  function handleOpen() {
-    setOpen(true)
-    if (messages.length === 0) {
-      setShowMenu(true)
-    }
+  function reset() {
+    generation.current++;request.current?.abort();agentActive.current=false;pending.current=null;setBusy(false);setMessages([]);setInput('');setError('');setCriteria(emptyCriteria);setShowTrip(false);setSessionId(null);setWaiting(false);setLiveAgent(false);setIntent('availability')
   }
-
-  function handleClose() {
-    setOpen(false)
-  }
-
-  function handleReset() {
-    setMessages([])
-    setIntent('')
-    setShowMenu(true)
-    setInput('')
-    setSessionId(null)
-    setLiveAgent(false)
-  }
-
-  const requestLiveAgent = useCallback(async () => {
-    if (!sessionId) return
-    setLiveAgent(true)
-    const agentMsg = t('chatbot.agentConnected')
-    setMessages(prev => [...prev, { role: 'assistant', content: agentMsg }])
-    await storeMessage(sessionId, 'bot', agentMsg)
-  }, [sessionId, t])
-
-  async function sendMessage(content: string) {
-    const newMessages: Message[] = [...messages, { role: 'user', content }]
-    setMessages(newMessages)
-    setInput('')
-
-    let sid = sessionId
-    if (!sid) {
-      sid = await createSession(intent)
-      if (!sid) return
-    }
-
-    await storeMessage(sid, 'customer', content)
-
-    // If in live agent mode, don't call AI - just store and wait for agent reply
-    if (liveAgent) {
-      return
-    }
-
-    setLoading(true)
-
+  async function send(content:string,trip?:ChatCriteria,retry=false) {
+    if(busy.current || (!content.trim() && !retry))return
+    const turn=generation.current
+    const history=retry && pending.current ? pending.current.history : [...messages,message('user',content.trim())]
+    const chosenTrip=retry ? pending.current?.trip : trip
+    pending.current={history,trip:chosenTrip};setMessages(history);setInput('');setError('');setBusy(true)
+    const abort=new AbortController();request.current=abort
+    const timeout=window.setTimeout(()=>abort.abort(),40000)
     try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chatbot`
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...functionHeaders(),
-        },
-        body: JSON.stringify({
-          messages: newMessages.map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role === 'user' ? 'user' : 'assistant', content: m.content })),
-          intent,
-          siteUrl: window.location.origin,
-          language: i18n.language,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to get response')
+      const sid=await ensureSession(turn,abort.signal)
+      await store(sid,history[history.length-1],abort.signal)
+      if(turn!==generation.current)return
+      if(agentActive.current || waiting){pending.current=null;return}
+      if(abort.signal.aborted)throw new Error('assistant.connectionError')
+      let data:any
+      if(chosenTrip) {
+        const {data:stays,error}=await supabase.rpc('find_chat_stays',{p_city:chosenTrip.city,p_check_in:chosenTrip.checkIn,p_check_out:chosenTrip.checkOut,p_guests:chosenTrip.guests,p_rooms:chosenTrip.rooms,p_property_type:chosenTrip.propertyType,p_max_total:chosenTrip.maxTotal,p_currency:chosenTrip.currency,p_amenities:chosenTrip.amenities}).abortSignal(abort.signal)
+        if(error || !Array.isArray(stays))throw new Error('assistant.searchError')
+        data={reply:t(stays.length?'assistant.results':'assistant.noMatches'),criteria:chosenTrip,recommendations:stays,searched:true}
+      } else {
+        const response=await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chatbot`,{method:'POST',signal:abort.signal,
+          headers:{'Content-Type':'application/json',...functionHeaders()},body:JSON.stringify({sessionId:sid,intent,language:i18n.language,criteria,
+            messages:history.slice(-16).map(m=>({role:m.role==='user'?'user':'assistant',content:m.content.slice(0,2000)}))})})
+        data=await response.json()
+        if(!response.ok || data.error)throw new Error(response.status===429?'assistant.rateLimit':'assistant.connectionError')
       }
-
-      const data = await response.json()
-      const reply = data.error ? t('chatbot.errorGeneric') : data.reply
-      setMessages([...newMessages, { role: 'assistant', content: reply }])
-      await storeMessage(sid, 'bot', reply)
-    } catch {
-      const errMsg = t('chatbot.errorConnect')
-      setMessages([...newMessages, { role: 'assistant', content: errMsg }])
-      await storeMessage(sid, 'bot', errMsg)
-    } finally {
-      setLoading(false)
-    }
+      if(turn!==generation.current || agentActive.current)return
+      if(abort.signal.aborted)throw new Error('assistant.connectionError')
+      const recommendations=Array.isArray(data.recommendations)?[...new Map<string,ChatStay>(data.recommendations.map((s:ChatStay)=>[s.id,s])).values()].slice(0,3):[]
+      const reply:Message={...message('assistant',typeof data.reply==='string' && data.reply.trim()?data.reply:t(data.searched?(recommendations.length?'assistant.results':'assistant.noMatches'):'assistant.completeTrip')),
+        searched:data.searched===true,recommendations,suggestions:Array.isArray(data.suggestions)?data.suggestions.slice(0,3):[]}
+      setMessages(previous=>[...previous,reply]);if(data.criteria)setCriteria(data.criteria)
+      setShowTrip(false);pending.current=null
+      // A logging failure must not discard a successful search or repeat the AI turn.
+      await store(sid,reply).catch(()=>{})
+    } catch(failure) {
+      if(turn===generation.current && !agentActive.current)setError(failure instanceof Error && failure.message.startsWith('assistant.')?failure.message:'assistant.connectionError')
+    } finally { window.clearTimeout(timeout);if(turn===generation.current)setBusy(false) }
   }
-
-  async function handleMenuSelect(selectedIntent: Intent) {
-    setIntent(selectedIntent)
-    setShowMenu(false)
-
-    const sid = await createSession(selectedIntent)
-
-    const label = selectedIntent ? t(`chatbot.menu.${selectedIntent}`) : ''
-    const assistantGreeting = getIntentGreeting(selectedIntent)
-    setMessages([{ role: 'user', content: label }, { role: 'assistant', content: assistantGreeting }])
-
-    if (sid) {
-      await storeMessage(sid, 'customer', label)
-      await storeMessage(sid, 'bot', assistantGreeting)
-    }
+  async function requestAgent() {
+    if(busy.current || waiting || liveAgent)return
+    setBusy(true);setError('');const turn=generation.current
+    try {
+      const sid=await ensureSession(turn)
+      const {error}=await supabase.rpc('request_chat_agent',{p_session:sid}).abortSignal(AbortSignal.timeout(15000))
+      if(error)throw error
+      if(turn!==generation.current)return
+      setWaiting(true);const notice=message('assistant',t('assistant.agentWaiting'));setMessages(previous=>[...previous,notice]);await store(sid,notice).catch(()=>{})
+    } catch { if(turn===generation.current)setError('assistant.connectionError') }
+    finally { if(turn===generation.current)setBusy(false) }
   }
+  const latest=messages[messages.length-1]
 
-  function getIntentGreeting(selectedIntent: Intent): string {
-    switch (selectedIntent) {
-      case 'reservation':
-        return t('chatbot.greeting.reservation')
-      case 'feedback':
-        return t('chatbot.greeting.feedback')
-      case 'availability':
-        return t('chatbot.greeting.availability')
-      case 'list_property':
-        return t('chatbot.greeting.listProperty')
-      case 'other':
-        return t('chatbot.greeting.other')
-      default:
-        return t('chatbot.greeting.default')
-    }
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!input.trim() || loading) return
-    sendMessage(input.trim())
-  }
-
-  return (
-    <>
-      {!open && (
-        <button
-          onClick={handleOpen}
-          className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-primary-600 hover:bg-primary-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-          aria-label={t('chatbot.openChat')}
-        >
-          <MessageCircle className="w-6 h-6" />
-        </button>
-      )}
-
-      {open && (
-        <div className="fixed bottom-6 right-6 z-50 w-[360px] max-w-[calc(100vw-2rem)] h-[520px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-scale-in">
-          {/* Header */}
-          <div className="bg-primary-600 text-white px-4 py-3 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <Bot className="w-5 h-5" />
-              <div>
-                <p className="text-sm font-semibold">{t('chatbot.title')}</p>
-                <p className="text-[10px] opacity-80">
-                  {liveAgent ? t('chatbot.connectedToAgent') : t('chatbot.replyInstantly')}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              {messages.length > 0 && !liveAgent && (
-                <button
-                  onClick={requestLiveAgent}
-                  className="p-1.5 hover:bg-white/20 rounded-lg transition-colors text-[10px] font-medium flex items-center gap-1"
-                  title={t('chatbot.talkToAgent')}
-                >
-                  <Headphones className="w-3 h-3" />
-                  {t('chatbot.agent')}
-                </button>
-              )}
-              {messages.length > 0 && (
-                <button
-                  onClick={handleReset}
-                  className="p-1.5 hover:bg-white/20 rounded-lg transition-colors text-[10px] font-medium"
-                  title={t('chatbot.newConversation')}
-                >
-                  {t('chatbot.new')}
-                </button>
-              )}
-              <button
-                onClick={handleClose}
-                className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-                aria-label={t('chatbot.closeChat')}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {showMenu ? (
-              <div className="space-y-3">
-                <div className="bg-gray-100 rounded-xl rounded-tl-sm px-3 py-2.5 text-sm text-gray-800 max-w-[85%]">
-                  {t('chatbot.welcome')}
-                </div>
-                <div className="space-y-2">
-                  {MENU_OPTIONS.map((option) => (
-                    <button
-                      key={option.id}
-                      onClick={() => handleMenuSelect(option.id)}
-                      className="w-full text-start px-3 py-2.5 bg-white border border-gray-200 hover:border-primary-300 hover:bg-primary-50 rounded-xl text-sm text-gray-700 transition-all flex items-center gap-2.5 group"
-                    >
-                      <span className="text-base">{option.emoji}</span>
-                      <span className="group-hover:text-primary-700 transition-colors">{t(`chatbot.menu.${option.id}`)}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <>
-                {messages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`flex items-end gap-1.5 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                        msg.role === 'user' ? 'bg-primary-100' : msg.role === 'agent' ? 'bg-green-100' : 'bg-gray-100'
-                      }`}>
-                        {msg.role === 'user' ? (
-                          <User className="w-3 h-3 text-primary-600" />
-                        ) : msg.role === 'agent' ? (
-                          <Headphones className="w-3 h-3 text-green-600" />
-                        ) : (
-                          <Bot className="w-3 h-3 text-gray-600" />
-                        )}
-                      </div>
-                      <div className={`px-3 py-2 rounded-xl text-sm whitespace-pre-wrap ${
-                        msg.role === 'user'
-                          ? 'bg-primary-600 text-white rounded-br-sm'
-                          : msg.role === 'agent'
-                          ? 'bg-green-50 text-gray-800 border border-green-200 rounded-bl-sm'
-                          : 'bg-gray-100 text-gray-800 rounded-bl-sm'
-                      }`}>
-                        {msg.role === 'agent' && <p className="text-[10px] text-green-600 font-medium mb-0.5">{t('chatbot.liveAgent')}</p>}
-                        {msg.content}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="flex items-end gap-1.5">
-                      <div className="w-6 h-6 rounded-full flex items-center justify-center bg-gray-100">
-                        <Bot className="w-3 h-3 text-gray-600" />
-                      </div>
-                      <div className="bg-gray-100 rounded-xl rounded-bl-sm px-3 py-2.5">
-                        <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input area */}
-          {!showMenu && (
-            <form onSubmit={handleSubmit} className="border-t border-gray-100 p-3 flex gap-2 shrink-0">
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                placeholder={liveAgent ? t('chatbot.inputPlaceholderAgent') : t('chatbot.inputPlaceholder')}
-                className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={!input.trim() || loading}
-                className="bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-xl p-2.5 transition-colors disabled:cursor-not-allowed"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-          )}
-        </div>
-      )}
-    </>
-  )
+  return <>
+    {!open && <button ref={launcher} className="chat-launcher" onClick={()=>setOpen(true)} aria-label={t('chatbot.openChat')}><MessageCircle size={23}/><span>{t('assistant.findStays')}</span></button>}
+    {open && <div ref={panel} role="dialog" aria-label={t('chatbot.title')} className="stay-chat">
+      <header className="stay-chat-header"><div className="stay-chat-avatar"><Sparkles size={21}/></div><div className="stay-chat-heading"><strong>{t('chatbot.title')}</strong><span>{t(liveAgent?'chatbot.connectedToAgent':waiting?'assistant.waiting':'assistant.subtitle')}</span></div>
+        <button type="button" onClick={reset} aria-label={t('chatbot.newConversation')} title={t('chatbot.newConversation')}><RotateCcw size={18}/></button>
+        <button type="button" onClick={close} aria-label={t('chatbot.closeChat')}><X size={21}/></button></header>
+      <div className="stay-chat-messages" ref={scroller} role="log" aria-live="polite" aria-relevant="additions text">
+        {!messages.length && <div className="chat-welcome"><span className="chat-welcome-icon"><Sparkles size={28}/></span><h2>{t('assistant.welcome')}</h2><p>{t('assistant.intro')}</p>
+          <div className="chat-start-actions"><button type="button" onClick={()=>void send(t('assistant.start'))}>{t('assistant.start')}</button><button type="button" onClick={()=>setShowTrip(true)}>{t('assistant.chooseDates')}</button></div>
+          <div className="chat-help-options">{(['reservation','list_property','feedback','other'] as Intent[]).map(option=><button type="button" key={option} onClick={()=>{setIntent(option);setMessages([message('assistant',t(option==='reservation'?'assistant.reservationIntro':`chatbot.greeting.${option==='list_property'?'listProperty':option}`))])}}>{t(`chatbot.menu.${option}`)}</button>)}</div>
+        </div>}
+        {messages.map((m,index)=><div key={m.id} className={`chat-turn chat-turn-${m.role}`}>
+          <div className="chat-bubble" dir="auto">{m.role==='agent' && <small>{t('chatbot.liveAgent')}</small>}{m.content}</div>
+          {m.searched && index===messages.length-1 && !loading && <div className="chat-results">
+            {m.recommendations?.map((stay,n)=><article key={stay.id} className="chat-stay-card">
+              <div className="chat-stay-image">{stay.image && /^https?:\/\//.test(stay.image)?<img src={stay.image} alt="" loading="lazy"/>:<Building2 size={30}/>}<span>{n+1}</span></div>
+              <div className="chat-stay-info"><h3 dir="auto">{stay.name}</h3><p><MapPin size={13}/>{stay.city}</p><p className="chat-stay-dates" dir="ltr"><time dateTime={stay.checkIn}>{stay.checkIn}</time> → <time dateTime={stay.checkOut}>{stay.checkOut}</time></p>
+                <p dir="auto">{stay.roomName}</p><p>{t('common.guestCount',{count:stay.guests})} · {stay.rooms} {t('common.rooms')}</p>
+                <div className="chat-stay-price"><strong>{new Intl.NumberFormat(i18n.language==='kmr'?'ar-IQ':i18n.language,{maximumFractionDigits:2}).format(stay.total)} <bdi>{stay.currency}</bdi></strong><span>{t('common.total')} · {t('common.nights')}: {stay.nights}</span></div>
+                <Link to={chatStayUrl(stay)} onClick={close}>{t('assistant.bookStay')}<ArrowUpRight size={16}/></Link></div>
+            </article>)}
+            {!!m.recommendations?.length && <p className="chat-result-note">{t('assistant.availabilityNote')}</p>}
+          </div>}
+        </div>)}
+        {loading && <div className="chat-thinking" role="status"><Loader2 size={17} className="animate-spin"/>{t('assistant.thinking')}</div>}
+        {error && <div className="chat-error" role="alert"><p>{t(error)}</p>{pending.current && <button type="button" disabled={loading} onClick={()=>void send('',undefined,true)}>{t('assistant.retry')}</button>}<button type="button" onClick={()=>setShowTrip(true)}>{t('assistant.chooseDates')}</button></div>}
+        {!loading && latest?.role==='assistant' && !waiting && !liveAgent && !error && <div className="chat-suggestions">{latest.suggestions?.map(s=><button key={s} type="button" onClick={()=>void send(s)} dir="auto">{s}</button>)}</div>}
+      </div>
+      {showTrip && <div className="chat-trip-panel"><div><strong>{t('assistant.tripDetails')}</strong><button type="button" onClick={()=>setShowTrip(false)} aria-label={t('common.cancel')}><X size={18}/></button></div>
+        <ChatTripForm key={JSON.stringify(criteria)} criteria={criteria} cities={cities} busy={loading} onSearch={trip=>void send(`${trip.city}: ${trip.checkIn} → ${trip.checkOut}, ${trip.guests} ${t('common.guests')}, ${trip.rooms} ${t('common.rooms')}`,trip)}/></div>}
+      <div className="chat-tools"><button type="button" disabled={loading || waiting || liveAgent} onClick={()=>setShowTrip(!showTrip)}><CalendarDays size={15}/>{t('assistant.tripDetails')}</button>
+        <button type="button" disabled={loading || waiting || liveAgent} onClick={()=>void requestAgent()}><Headphones size={15}/>{t('chatbot.talkToAgent')}</button></div>
+      {intent==='list_property' && <Link className="chat-context-link" to="/add-accommodation" onClick={close}>{t('ux.listProperty')}<ArrowUpRight size={15}/></Link>}
+      {intent==='reservation' && <Link className="chat-context-link" to="/profile" onClick={close}>{t('common.myProfile')}<ArrowUpRight size={15}/></Link>}
+      <form className="chat-composer" onSubmit={e=>{e.preventDefault();void send(input)}}><input ref={inputRef} dir="auto" aria-label={t('assistant.message')} value={input} maxLength={1500} onChange={e=>setInput(e.target.value)} placeholder={t(waiting||liveAgent?'chatbot.inputPlaceholderAgent':'assistant.placeholder')} disabled={loading}/>
+        <button type="submit" disabled={loading || !input.trim()} aria-label={t('assistant.send')}><Send size={19}/></button></form>
+    </div>}
+  </>
 }

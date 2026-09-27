@@ -57,6 +57,16 @@ test('checkout shows server total, supports multiple rooms and submits one reque
   expect(errors).toEqual([])
 })
 
+test('assistant booking links preserve the initial room count and quote the full group',async({page})=>{
+  await mockApi(page)
+  await page.goto(path.replace('guests=2','guests=4')+'&rooms=2')
+  await expect(page.getByLabel('Rooms',{exact:true})).toHaveValue('2')
+  await expect(page.getByLabel('Guests',{exact:true})).toHaveValue('4')
+  await expect(page.getByText('$550',{exact:true})).toBeVisible()
+  await expect(page.getByLabel('Check-in',{exact:true})).toHaveValue('2030-10-10')
+  await expect(page.getByLabel('Check-out',{exact:true})).toHaveValue('2030-10-12')
+})
+
 test('sold-out dates show a useful message and disable submission', async ({ page }) => {
   await mockApi(page, { unavailable: true })
   await page.goto(path, { waitUntil: 'domcontentloaded' })

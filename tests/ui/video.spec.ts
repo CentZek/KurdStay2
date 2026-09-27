@@ -14,7 +14,7 @@ const hotel = { id: hotelId, name: 'Mountain Farm', city: 'Duhok', country: 'Ira
   description: 'A peaceful farm stay.', images: [poster], amenities: [], currency: 'USD', profit_margin_percentage: 10,
   video_url: video, video_poster_url: poster, status: 'active' }
 
-async function setup(page: Page, options: { lang?: string; role?: string; noVideo?: boolean; failComplete?: boolean; holdUpload?: boolean; failSave?: boolean } = {}) {
+async function setup(page: Page, options: { lang?: string; role?: string; noVideo?: boolean; failComplete?: boolean; holdUpload?: boolean; failSave?: boolean; social?: string } = {}) {
   const state = { creates: 0, completes: 0, posts: 0, downloads: 0, submitted: [] as any[], videoSaves: [] as any[] }
   await page.addInitScript(({lang}) => { localStorage.setItem('language', lang); localStorage.setItem('kurdstay_session', 'test-session') }, { lang: options.lang || 'en' })
   await page.route(/^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com|images\.pexels\.com)\//, route => route.abort())
@@ -49,9 +49,12 @@ async function setup(page: Page, options: { lang?: string; role?: string; noVide
     }
     let data: any = []
     if (url.pathname.endsWith('/current_profile')) data = { id: 'user', name: 'Test Host', username: 'test', role: options.role || 'customer', language_preference: options.lang || 'en' }
-    if (url.pathname.endsWith('/hotels')) data = options.role === 'hotel_owner' || options.role === 'admin' ? [hotel] : { ...hotel, ...(options.noVideo ? { video_url: null, video_poster_url: null } : {}) }
+    if (url.pathname.endsWith('/hotels')) {
+      const listing={ ...hotel, ...(options.noVideo || options.social ? { video_url: null, video_poster_url: null } : {}),social_video_url:options.social||null }
+      data = options.role === 'hotel_owner' || options.role === 'admin' ? [listing] : listing
+    }
     if (url.pathname.endsWith('/accommodation_applications') && request.method() === 'POST') state.submitted.push(request.postDataJSON())
-    if (url.pathname.endsWith('/set_hotel_video')) {
+    if (url.pathname.endsWith('/set_hotel_video') || url.pathname.endsWith('/set_hotel_social_video')) {
       state.videoSaves.push(request.postDataJSON())
       if (options.failSave) return route.fulfill({ status: 500, json: { message: 'Save failed' } })
       data = null
@@ -165,4 +168,54 @@ test('failed owner save retains the previous video and exposes a retry', async (
   await expect(page.locator('.video-upload-error')).toContainText(en.video.saveFailed)
   await expect(page.locator('.video-upload-preview')).toBeVisible()
   await expect(page.getByRole('button', { name: en.video.retry, exact: true })).toBeVisible()
+})
+
+test('social-only applications save a canonical link without uploading video bytes',async({page})=>{
+  const state=await setup(page,{noVideo:true})
+  await page.goto('/add-accommodation')
+  const basics=page.locator('form input')
+  await basics.nth(0).fill('Social Farm')
+  await basics.nth(1).fill('Duhok')
+  await basics.nth(2).fill('Mountain Road')
+  await page.getByRole('button',{name:en.video.media,exact:true}).click()
+  await page.getByRole('button',{name:en.socialVideo.link,exact:true}).click()
+  await page.getByLabel(en.socialVideo.url,{exact:true}).fill('https://youtube.com.evil.test/video')
+  await page.getByRole('button',{name:en.socialVideo.save,exact:true}).click()
+  await expect(page.getByRole('alert')).toContainText(en.socialVideo.invalid)
+  await page.getByLabel(en.socialVideo.url,{exact:true}).fill('https://www.instagram.com/reel/ABC123/?igsh=tracking')
+  await page.getByRole('button',{name:en.socialVideo.save,exact:true}).click()
+  await expect(page.locator('.social-video-player')).toBeVisible()
+  await page.locator('.property-media-editor').screenshot({path:'tmp/social-editor.png'})
+  await page.getByRole('button',{name:en.addProperty.steps.contact,exact:true}).click()
+  await page.getByRole('button',{name:en.addProperty.submitForReview,exact:true}).click()
+  await expect(page.getByText(en.addProperty.successTitle,{exact:true})).toBeVisible()
+  expect(state.submitted[0]).toMatchObject({social_video_url:'https://www.instagram.com/reel/ABC123/',video_url:null,video_poster_url:null,images:[]})
+  expect(state.creates).toBe(0)
+  expect(state.posts).toBe(0)
+})
+
+test('social player loads only after a click and always offers the original public video',async({page})=>{
+  await setup(page,{social:'https://www.youtube.com/watch?v=dQw4w9WgXcQ'})
+  await page.route('https://www.youtube-nocookie.com/**',r=>r.fulfill({contentType:'text/html',body:'<p>External video player</p>'}))
+  await page.goto(`/hotel/${hotelId}`)
+  await expect(page.locator('.property-photo-stage img')).toBeVisible()
+  await expect(page.locator('.property-gallery-section iframe')).toHaveCount(0)
+  await page.locator('.property-media-switch').getByRole('button',{name:en.video.watch,exact:true}).click()
+  await expect(page.locator('.property-gallery-section iframe')).toHaveAttribute('src',/^https:\/\/www.youtube-nocookie.com\/embed\/dQw4w9WgXcQ/)
+  await expect(page.locator('.social-video-fallback')).toHaveAttribute('href','https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await page.locator('.property-media-switch button').first().click()
+  await expect(page.locator('.property-gallery-section iframe')).toHaveCount(0)
+})
+
+test('owner can replace an uploaded video with a Facebook link without storage requests',async({page})=>{
+  const state=await setup(page,{role:'hotel_owner'})
+  await page.goto('/owner')
+  await page.getByRole('button',{name:en.video.media,exact:true}).click()
+  await page.getByRole('button',{name:en.socialVideo.link,exact:true}).click()
+  await page.getByLabel(en.socialVideo.url,{exact:true}).fill('https://facebook.com/reel/123456789/')
+  await page.getByRole('button',{name:en.socialVideo.save,exact:true}).click()
+  await expect.poll(()=>state.videoSaves.length).toBe(1)
+  expect(state.videoSaves[0]).toEqual({p_hotel:hotelId,p_url:'https://www.facebook.com/watch/?v=123456789'})
+  expect(state.creates).toBe(0)
+  await expect(page.locator('.social-video-fallback')).toHaveAttribute('href','https://www.facebook.com/watch/?v=123456789')
 })

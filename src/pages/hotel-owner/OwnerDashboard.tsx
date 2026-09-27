@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { Building2, Bed, Calendar, CalendarCheck, TrendingUp, Users, Image, X, Plus } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import VideoUploader from '../../components/VideoUploader'
+import PropertyMediaEditor from '../../components/PropertyMediaEditor'
+import { videoColumns, videoFromRow, parseSocialVideo } from '../../lib/socialVideo'
 import type { PropertyVideoValue } from '../../lib/propertyVideo'
 import { formatDate } from '../../lib/locale'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts'
@@ -16,6 +17,7 @@ interface Hotel {
   status: string
   currency: string
   images: string[]
+  social_video_url?: string | null
   video_url?: string | null
   video_poster_url?: string | null
 }
@@ -72,7 +74,7 @@ export default function OwnerDashboard() {
     {
       const { data: hotelsData, error: hotelError } = await supabase
         .from('hotels')
-        .select('id, name, city, status, currency, images, video_url, video_poster_url')
+        .select('id, name, city, status, currency, images, video_url, video_poster_url, social_video_url')
         .or(hotelIds.length ? `owner_id.eq.${profile!.id},id.in.(${hotelIds.join(',')})` : `owner_id.eq.${profile!.id}`)
       if (hotelError) { setError(t('common.errorOccurred')); setLoading(false); return }
       hotelsList = hotelsData || []
@@ -125,13 +127,14 @@ export default function OwnerDashboard() {
 
   async function saveVideo(video: PropertyVideoValue | null) {
     if (!selectedHotel) throw new Error('video.saveFailed')
-    const { error: saveError } = await supabase.rpc('set_hotel_video', {
-      p_hotel: selectedHotel.id, p_url: video?.url || null, p_poster: video?.poster || null,
-    })
+    const social = video && parseSocialVideo(video.url)
+    const { error: saveError } = social
+      ? await supabase.rpc('set_hotel_social_video', { p_hotel: selectedHotel.id, p_url: social.url })
+      : await supabase.rpc('set_hotel_video', { p_hotel: selectedHotel.id, p_url: video?.url || null, p_poster: video?.poster || null })
     if (saveError) throw new Error('video.saveFailed')
     const useVideoCover = !selectedHotel.images?.length || (selectedHotel.images.length === 1 && selectedHotel.images[0] === selectedHotel.video_poster_url)
-    const changes = { video_url: video?.url || null, video_poster_url: video?.poster || null,
-      images: video && useVideoCover ? [video.poster] : selectedHotel.images || [] }
+    const changes = { ...videoColumns(video),
+      images: !social && video?.poster && useVideoCover ? [video.poster] : selectedHotel.images || [] }
     setSelectedHotel({ ...selectedHotel, ...changes })
     setHotels(prev => prev.map(h => h.id === selectedHotel.id ? { ...h, ...changes } : h))
   }
@@ -465,7 +468,7 @@ export default function OwnerDashboard() {
               </button>
             </div>
             <p className="mt-2 text-xs text-gray-400">{t('owner.galleryHelp')}</p>
-            <VideoUploader key={selectedHotel.id} value={selectedHotel.video_url && selectedHotel.video_poster_url ? { url: selectedHotel.video_url, poster: selectedHotel.video_poster_url } : null}
+            <PropertyMediaEditor key={selectedHotel.id} value={videoFromRow(selectedHotel)}
               onChange={saveVideo} onBusyChange={setVideoBusy} disabled={imageSaving} />
           </div>
         </div>

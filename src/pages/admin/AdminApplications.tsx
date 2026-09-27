@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import { videoFromRow } from '../../lib/socialVideo'
 import PropertyVideo from '../../components/PropertyVideo'
 import {
   Home, X, MapPin, Phone, User as UserIcon, CheckCircle2, XCircle, Clock,
@@ -26,6 +27,7 @@ interface Application {
   longitude: number | null
   amenities: string[]
   images: string[]
+  social_video_url?: string | null
   video_url?: string | null
   video_poster_url?: string | null
   status: string
@@ -204,7 +206,7 @@ export default function AdminApplications() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {selected.video_url && selected.video_poster_url && <div className="mb-5"><PropertyVideo key={selected.video_url} value={{ url: selected.video_url, poster: selected.video_poster_url }} title={selected.property_name} /></div>}
+              {videoFromRow(selected) && <div className="mb-5"><PropertyVideo key={selected.id} value={videoFromRow(selected)!} title={selected.property_name} /></div>}
               {selected.images?.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {selected.images.map((url, i) => (
