@@ -214,12 +214,50 @@ from Supabase migration and Edge Function deployment.
 
 Target project: **`nqkspjqrahfccevvrnjf`** (Singapore). The app already points to
 `https://nqkspjqrahfccevvrnjf.supabase.co`; no new project or frontend integration is needed.
-Direct checks on 2026-10-27 confirmed that the configured anon key can read public
-hotels and call `current_profile()`. `app_capabilities()` returned **PGRST202 / function
-not found**, so the new reliability migration set is not yet fully installed. The
-API-description endpoint rejects requests on this project; it is not a valid key
-health check. The remote migration ledger still needs verification through the CLI.
-GitHub publication does not apply migrations or deploy Edge Functions.
+Deployment on 2026-10-27 applied the three reliability migrations and seven earlier
+reconciliation migrations. The configured anon key works, all three
+`app_capabilities()` flags are enabled, and the live read-only setup check passes.
+The API-description endpoint rejects requests on this project; it is not a valid
+key health check. GitHub publication alone does not apply migrations or deploy
+Edge Functions; the deployment below was performed separately through the CLI.
+
+### Deployment completed on 2026-10-27
+
+- Recovered the missing `20260913174559_create_points_of_interest` and
+  `20260913175803_expand_poi_types` files from Supabase's recorded migration SQL.
+  Their existing remote ledger entries were retained.
+- Compared the complete SQL for `20260923201017_register_user_language` with the
+  recorded `20260926152144` deployment, confirmed they match apart from comments
+  and whitespace, and marked only that duplicate version applied.
+- Applied the seven pending reconciliation migrations and the three reliability
+  migrations. The pending `20260926172000` migration initially rolled back because
+  `crypt()` was outside the default search path. Added a transaction-local search
+  path including `extensions` before successfully applying it. The regression test
+  now also exercises pgcrypto in Supabase's hosted schema.
+- Deployed `whatsapp-notify`, `property-images`, and `property-videos`. Media
+  functions now use the repository's gateway configuration while retaining their
+  internal session authorization. Downloaded deployed sources for comparison;
+  all seven function entry points matched the reviewed repository sources.
+- Live checks passed: required schema, RLS, private password columns, storage
+  visibility, requested admin login, current profile, dashboard statistics,
+  paginated bookings/chats, public hotel search, and unauthorized notification
+  rejection. The test session was logged out; no WhatsApp message was sent.
+- Final CLI dry run reported **Remote database is up to date**, with no pending
+  migrations. All seven Edge Functions are active and their gateway settings
+  match the repository. All 54 automated tests pass after the deployment fix.
+- **Deferred by request:** `OPENROUTER_API_KEY` and
+  `TWILIO_TPL_VERIFICATION_CODE` are absent. AI chat/import and WhatsApp phone
+  verification still require those provider settings. Booking notification
+  secrets are present, but delivery was not tested.
+
+A pre-deployment PostgreSQL archive of `public`, `private`, and
+`supabase_migrations`, plus a separate archive of Storage bucket/object metadata,
+is saved locally under `.github-publish/tmp/pre-deploy-20261027/`. Both archives
+were created successfully and their contents lists were readable with pg_restore.
+They are ignored by Git and contain sensitive application data. These are scoped
+application backups, not complete project backups: they exclude uploaded file
+contents, Supabase Auth data, provider secrets, and platform-managed schemas.
+Supabase reported no available managed backups at deployment time.
 
 ### 1. Confirm the frontend key
 

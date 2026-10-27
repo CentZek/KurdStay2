@@ -364,6 +364,9 @@ test('AI quota and human handoff are private to the browser that created the cha
 
 test('reconciled security migrations preserve existing sessions, reservations and verification state', async () => {
   await db.exec('RESET ROLE')
+  // Match hosted Supabase, where pgcrypto is outside the default public schema.
+  await db.exec('ALTER EXTENSION pgcrypto SET SCHEMA extensions')
+  await db.exec('GRANT USAGE ON SCHEMA extensions TO anon, authenticated, service_role')
   const tables = ['private.app_sessions', 'private.login_attempts', 'private.booking_notifications',
     'public.profiles', 'public.bookings', 'public.room_availability', 'public.phone_verifications',
     'public.hotels', 'public.accommodation_applications', 'public.chat_sessions', 'private.chat_rate_limits']

@@ -1,4 +1,7 @@
 BEGIN;
+-- Hosted Supabase installs pgcrypto in extensions; fresh local databases may
+-- install it in public. Resolve both when checking old development passwords.
+SET LOCAL search_path = public, extensions, pg_temp;
 -- Service-role-only operations for Edge Functions: hashes, throttling and
 -- attempt limits are updated under a lock, not in a race-prone read/write pair.
 CREATE OR REPLACE FUNCTION public.prepare_phone_verification(p_profile uuid, p_phone text, p_hash text)
