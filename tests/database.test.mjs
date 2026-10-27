@@ -318,11 +318,12 @@ test('AI quota and human handoff are private to the browser that created the cha
 test('reconciled security migrations preserve existing sessions, reservations and verification state', async () => {
   await db.exec('RESET ROLE')
   const tables = ['private.app_sessions', 'private.login_attempts', 'private.booking_notifications',
-    'public.profiles', 'public.bookings', 'public.room_availability', 'public.phone_verifications']
+    'public.profiles', 'public.bookings', 'public.room_availability', 'public.phone_verifications',
+    'public.hotels', 'public.accommodation_applications', 'public.chat_sessions', 'private.chat_rate_limits']
   const snapshot = async () => Promise.all(tables.map(async table =>
     (await db.query(`SELECT row_to_json(t)::text AS row FROM ${table} t ORDER BY row_to_json(t)::text`)).rows))
   const before = await snapshot()
-  for (const file of (await readdir('supabase/migrations')).filter(f => /^2026092617.*\.sql$/.test(f)).sort()) {
+  for (const file of (await readdir('supabase/migrations')).filter(f => /^(2026092617|2026092720).*\.sql$/.test(f)).sort()) {
     await db.exec(await readFile(`supabase/migrations/${file}`, 'utf8'))
   }
   assert.deepEqual(await snapshot(), before)

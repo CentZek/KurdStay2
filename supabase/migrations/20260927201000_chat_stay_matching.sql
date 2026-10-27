@@ -1,5 +1,6 @@
+-- Reconcile the earlier deployed chat migration; retain rate-limit state.
 BEGIN;
-CREATE FUNCTION public.chat_stay_catalog() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+CREATE OR REPLACE FUNCTION public.chat_stay_catalog() RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT jsonb_build_object('cities', coalesce((SELECT jsonb_agg(city ORDER BY city) FROM (SELECT DISTINCT city FROM hotels WHERE status='active') c),'[]'),
     'amenities', coalesce((SELECT jsonb_agg(a ORDER BY a) FROM (
       SELECT unnest(amenities) a FROM hotels WHERE status='active'
@@ -7,7 +8,7 @@ CREATE FUNCTION public.chat_stay_catalog() RETURNS jsonb LANGUAGE sql STABLE SEC
     ) m WHERE a IS NOT NULL),'[]'));
 $$;
 
-CREATE FUNCTION public.find_chat_stays(p_city text, p_check_in date, p_check_out date, p_guests integer, p_rooms integer DEFAULT 1,
+CREATE OR REPLACE FUNCTION public.find_chat_stays(p_city text, p_check_in date, p_check_out date, p_guests integer, p_rooms integer DEFAULT 1,
   p_property_type text DEFAULT NULL, p_max_total numeric DEFAULT NULL, p_currency text DEFAULT NULL, p_amenities text[] DEFAULT '{}')
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE candidate record; quote jsonb; options jsonb := '[]';
@@ -54,9 +55,9 @@ END $$;
 REVOKE ALL ON FUNCTION public.find_chat_stays(text,date,date,integer,integer,text,numeric,text,text[]), public.chat_stay_catalog() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.find_chat_stays(text,date,date,integer,integer,text,numeric,text,text[]), public.chat_stay_catalog() TO anon,authenticated;
 
-ALTER TABLE chat_sessions ADD COLUMN needs_agent boolean NOT NULL DEFAULT false;
-CREATE TABLE private.chat_rate_limits(visitor_hash text PRIMARY KEY, window_start timestamptz NOT NULL DEFAULT now(), requests integer NOT NULL DEFAULT 1);
-CREATE FUNCTION public.claim_chat_turn(p_session uuid) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS needs_agent boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS private.chat_rate_limits(visitor_hash text PRIMARY KEY, window_start timestamptz NOT NULL DEFAULT now(), requests integer NOT NULL DEFAULT 1);
+CREATE OR REPLACE FUNCTION public.claim_chat_turn(p_session uuid) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 DECLARE visitor text := public.request_token_hash('x-stay-visitor'); used integer;
 BEGIN
   IF visitor IS NULL OR NOT EXISTS (SELECT 1 FROM chat_sessions WHERE id=p_session AND visitor_hash=visitor AND status='open') THEN
@@ -67,7 +68,7 @@ BEGIN
     RETURNING requests INTO used;
   RETURN used<=60;
 END $$;
-CREATE FUNCTION public.request_chat_agent(p_session uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+CREATE OR REPLACE FUNCTION public.request_chat_agent(p_session uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 BEGIN
   UPDATE chat_sessions SET needs_agent=true, updated_at=now() WHERE id=p_session AND status='open'
     AND visitor_hash=public.request_token_hash('x-stay-visitor');

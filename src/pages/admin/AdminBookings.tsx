@@ -29,8 +29,12 @@ export default function AdminBookings() {
   const { t } = useTranslation()
   const { profile } = useAuth()
   const [bookings, setBookings] = useState<Booking[]>([])
-  const [searchParams] = useSearchParams()
-  const [filter, setFilter] = useState(searchParams.get('status') || 'all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedStatus = searchParams.get('status') || 'all'
+  const filter = ['pending', 'confirmed', 'cancelled', 'completed'].includes(requestedStatus) ? requestedStatus : 'all'
+  function setFilter(status: string) {
+    setSearchParams(previous => { const next = new URLSearchParams(previous); if (status === 'all') next.delete('status'); else next.set('status', status); return next })
+  }
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [updatingId, setUpdatingId] = useState('')
@@ -56,7 +60,7 @@ export default function AdminBookings() {
     if (updatingId) return
     setUpdatingId(id)
     setError('')
-    const { error: updateError } = await supabase.from('bookings').update({ status }).eq('id', id)
+    const { error: updateError } = await supabase.from('bookings').update({ status }).eq('id', id).select('id').single()
     if (updateError) { setError(t('common.errorOccurred')); setUpdatingId(''); return }
 
     // Send WhatsApp notification when booking is confirmed

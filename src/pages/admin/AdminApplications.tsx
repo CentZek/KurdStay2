@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { videoFromRow } from '../../lib/socialVideo'
+import AdminDialog from '../../components/AdminDialog'
 import PropertyVideo from '../../components/PropertyVideo'
 import {
   Home, X, MapPin, Phone, User as UserIcon, CheckCircle2, XCircle, Clock,
@@ -56,6 +57,7 @@ export default function AdminApplications() {
   const [note, setNote] = useState('')
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
     if (profile?.role === 'admin') fetchApps()
@@ -63,11 +65,14 @@ export default function AdminApplications() {
   }, [profile])
 
   async function fetchApps() {
-    const { data } = await supabase
+    setLoading(true)
+    setLoadError('')
+    const { data, error: fetchError } = await supabase
       .from('accommodation_applications')
       .select('*')
       .order('created_at', { ascending: false })
-    setApps(data || [])
+    if (fetchError) setLoadError(t('common.errorOccurred'))
+    else setApps(data || [])
     setLoading(false)
   }
 
@@ -104,7 +109,7 @@ export default function AdminApplications() {
     }
     setWorking(true)
     setError('')
-    await supabase
+    const { error: updateError } = await supabase
       .from('accommodation_applications')
       .update({
         status,
@@ -112,8 +117,9 @@ export default function AdminApplications() {
         reviewed_at: new Date().toISOString(),
         reviewed_by: profile!.id,
       })
-      .eq('id', app.id)
+      .eq('id', app.id).select('id').single()
     setWorking(false)
+    if (updateError) { setError(t('common.errorOccurred')); return }
     setSelected(null)
     fetchApps()
   }
@@ -143,10 +149,12 @@ export default function AdminApplications() {
         <h1 className="text-2xl font-bold text-gray-900">{t('applications.title')}</h1>
       </div>
 
+      {loadError && <div role="alert" className="feedback-message error">{loadError} <button onClick={fetchApps}>{t('ux.retry')}</button></div>}
       <div className="flex gap-2 mb-6 flex-wrap">
         {TABS.map(id => (
           <button
             key={id}
+            aria-pressed={tab === id}
             onClick={() => setTab(id)}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
               tab === id ? 'bg-primary-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
@@ -195,17 +203,16 @@ export default function AdminApplications() {
 
       {/* Detail modal */}
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <AdminDialog title={selected.property_name} onClose={() => setSelected(null)} busy={working} className="application-dialog">
+            <div className="admin-dialog-header">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-semibold text-gray-900">{selected.property_name}</h2>
                 {statusBadge(selected.status)}
               </div>
-              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-400" /></button>
+              <button disabled={working} aria-label={t('common.cancel')} onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            <div className="admin-dialog-body space-y-5">
               {videoFromRow(selected) && <div className="mb-5"><PropertyVideo key={selected.id} value={videoFromRow(selected)!} title={selected.property_name} /></div>}
               {selected.images?.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
@@ -253,8 +260,8 @@ export default function AdminApplications() {
 
               {selected.status !== 'approved' && (
                 <div>
-                  <label className="text-sm text-gray-600 font-medium">{t('applications.noteLabel')}</label>
-                  <textarea
+                  <label htmlFor="application-note" className="text-sm text-gray-600 font-medium">{t('applications.noteLabel')}</label>
+                  <textarea id="application-note"
                     rows={3}
                     value={note}
                     onChange={e => setNote(e.target.value)}
@@ -264,11 +271,11 @@ export default function AdminApplications() {
                 </div>
               )}
 
-              {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+              {error && <div role="alert" className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
             </div>
 
             {selected.status !== 'approved' && (
-              <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+              <div className="admin-dialog-footer flex-wrap">
                 <button
                   onClick={() => setStatus(selected, 'rejected')}
                   disabled={working}
@@ -299,8 +306,7 @@ export default function AdminApplications() {
                 <CheckCircle2 className="w-4 h-4" /> {t('applications.approvedNote')}
               </div>
             )}
-          </div>
-        </div>
+        </AdminDialog>
       )}
     </div>
   )

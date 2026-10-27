@@ -19,6 +19,7 @@ playwright-report/
 .DS_Store
 Thumbs.db
 *.local
+*.local.sql
 
 # Android signing secrets
 android/keystore.properties

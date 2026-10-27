@@ -18,6 +18,7 @@ export default function AdminDestinations() {
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -25,17 +26,20 @@ export default function AdminDestinations() {
   }, [profile])
 
   async function fetchDestinations() {
-    const { data } = await supabase
+    setLoading(true)
+    setError('')
+    const { data, error: fetchError } = await supabase
       .from('destinations')
       .select('*')
       .order('name')
-    setDestinations(data || [])
+    if (fetchError) setError(t('common.errorOccurred'))
+    else setDestinations(data || [])
     setLoading(false)
   }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    if (!newName.trim()) return
+    if (adding || !newName.trim()) return
     setError('')
     setAdding(true)
 
@@ -55,9 +59,14 @@ export default function AdminDestinations() {
   }
 
   async function handleDelete(id: string, name: string) {
+    if (deleting) return
     if (!confirm(t('admin.confirmDeleteDestination', { name }))) return
-    await supabase.from('destinations').delete().eq('id', id)
-    fetchDestinations()
+    setDeleting(true)
+    setError('')
+    const { error: deleteError } = await supabase.from('destinations').delete().eq('id', id).select('id').single()
+    if (deleteError) setError(t('common.errorOccurred'))
+    else await fetchDestinations()
+    setDeleting(false)
   }
 
   if (profile?.role !== 'admin') {
@@ -70,10 +79,10 @@ export default function AdminDestinations() {
 
       {/* Add form */}
       <form onSubmit={handleAdd} className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
-        <label className="text-sm font-medium text-gray-700 mb-2 block">{t('admin.addDestination')}</label>
+        <label htmlFor="destination-name" className="text-sm font-medium text-gray-700 mb-2 block">{t('admin.addDestination')}</label>
         <div className="flex gap-3">
           <input
-            type="text"
+            id="destination-name" type="text"
             value={newName}
             onChange={e => setNewName(e.target.value)}
             placeholder={t('admin.destinationPlaceholder')}
@@ -88,7 +97,7 @@ export default function AdminDestinations() {
             {t('admin.add')}
           </button>
         </div>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {error && <div role="alert" className="feedback-message error">{error} <button type="button" onClick={fetchDestinations}>{t('ux.retry')}</button></div>}
       </form>
 
       {/* List */}
@@ -110,6 +119,8 @@ export default function AdminDestinations() {
                   </p>
                 </div>
                 <button
+                  disabled={deleting}
+                  aria-label={`${t('common.delete')} ${dest.name}`}
                   onClick={() => handleDelete(dest.id, dest.name)}
                   className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors"
                 >

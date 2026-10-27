@@ -362,6 +362,52 @@ a, button { touch-action: manipulation; }
 .dashboard-content th { font-size: 11px; white-space: nowrap; }
 .dashboard-content td { vertical-align: middle; }
 .dashboard-content .overflow-x-auto { scrollbar-width: thin; }
+.workspace-sidebar { overflow-y: auto; }
+.workspace-link { font-size: 14px; line-height: 1.5; }
+.workspace-link svg { flex-shrink: 0; }
+.dashboard-content { overflow-wrap: anywhere; }
+.dashboard-content .text-gray-400, .admin-dialog .text-gray-400 { color: #64748b; }
+.dashboard-content button:disabled, .admin-dialog button:disabled { opacity: .55; }
+.admin-toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.admin-toolbar input, .admin-toolbar select { border: 1px solid #ccd5da; border-radius: 10px; padding: 10px 14px; }
+.admin-toolbar input { flex: 1; min-width: 160px; }
+.admin-chat-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; height: max(500px, calc(100dvh - 220px)); }
+.admin-chat-list, .admin-chat-detail { min-width: 0; min-height: 0; }
+.admin-chat-back { display: none; }
+@media (max-width: 900px) {
+  .admin-chat-layout { display: flex; height: max(480px, calc(100dvh - 280px)); }
+  .admin-chat-list, .admin-chat-detail { width: 100%; }
+  .admin-chat-detail, .admin-chat-layout.has-selection .admin-chat-list { display: none; }
+  .admin-chat-layout.has-selection .admin-chat-detail { display: flex; }
+  .admin-chat-back { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid #e4e9eb; flex: none; }
+}
+.admin-dialog { margin: auto; width: calc(100% - 32px); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border: 1px solid #dce3e6; border-radius: 18px; color: var(--ink); background: white; box-shadow: 0 24px 80px #07182240; overflow-y: auto; overscroll-behavior: contain; }
+.admin-dialog::backdrop { background: #07182299; backdrop-filter: blur(3px); }
+.admin-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid #e4e9eb; flex: none; }
+.admin-dialog-header > button { flex: none; width: 44px; }
+.hotel-editor[open], .application-dialog[open] { display: flex; flex-direction: column; overflow: hidden; max-width: 800px; }
+.hotel-editor-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: none; padding: 12px 20px; border-bottom: 1px solid #e4e9eb; background: #f8fafb; }
+.hotel-editor-tab { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px 8px; min-height: 48px; border: 1px solid transparent; border-radius: 10px; font-size: 14px; font-weight: 600; line-height: 1.5; color: #526372; }
+.hotel-editor-tab svg { flex: none; }
+.hotel-editor-tab:hover:not(:disabled) { background: #edf1f3; color: #172f3d; }
+.hotel-editor-tab.active, .hotel-editor-tab.active:hover { background: #102b3d; color: white; border-color: #102b3d; }
+.hotel-editor-tab.active svg { color: #efd49b; }
+.admin-dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; }
+.admin-dialog-body [hidden] { display: none; }
+.admin-dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; background: #f8fafb; border-top: 1px solid #e4e9eb; flex: none; }
+.admin-dialog label { line-height: 1.6; }
+.admin-dialog input, .admin-dialog textarea, .admin-dialog select { background: white; }
+[dir="rtl"] .admin-dialog-footer .lucide-chevron-left { transform: rotate(180deg); }
+@media (max-width: 639px) {
+  .admin-dialog { width: calc(100% - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border-radius: 14px; }
+  .hotel-editor-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px 12px; }
+  .hotel-editor-tab { padding: 10px 8px; }
+  .admin-dialog-header, .admin-dialog-body, .admin-dialog-footer { padding: 16px; }
+  .hotel-editor .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
+  .hotel-editor .col-span-2 { grid-column: span 1; }
+  .admin-dialog input, .admin-dialog textarea, .admin-dialog select { font-size: 16px; }
+  .admin-toolbar > * { width: 100%; }
+}
 .dashboard-content [class*="fixed inset-0"] { z-index: 60; }
 .dashboard-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
 .dashboard-heading h1 { margin: 0 0 7px; }
@@ -442,3 +488,7 @@ a, button { touch-action: manipulation; }
 [dir="rtl"] .hero-photo-caption > span { letter-spacing: 0; }
 [dir="rtl"] .hero-photo-caption p { font-family: Tahoma, sans-serif; font-size: 18px; }
 @media (max-width: 360px) { .hero-stay-links small { display: none; }.hero-stay-links > a { gap: 6px; }.hero-photo-caption p { font-size: 16px; } }
+
+/* Older embedded browsers can use the same modal layout without showModal. */
+.admin-dialog-backdrop { position: fixed; inset: 0; z-index: 60; background: #07182299; }
+.admin-dialog-fallback { position: fixed; top: 50%; left: 50%; margin: 0; transform: translate(-50%, -50%); z-index: 61; }

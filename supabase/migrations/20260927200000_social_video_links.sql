@@ -1,8 +1,9 @@
+-- Reconcile the earlier deployed social-video migration without dropping data.
 BEGIN;
-ALTER TABLE hotels ADD COLUMN social_video_url text;
-ALTER TABLE accommodation_applications ADD COLUMN social_video_url text;
+ALTER TABLE hotels ADD COLUMN IF NOT EXISTS social_video_url text;
+ALTER TABLE accommodation_applications ADD COLUMN IF NOT EXISTS social_video_url text;
 
-CREATE FUNCTION public.valid_social_video_url(url text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+CREATE OR REPLACE FUNCTION public.valid_social_video_url(url text) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
   SELECT url IS NULL OR length(url) <= 500 AND (
     url ~ '^https://www\.youtube\.com/watch\?v=[A-Za-z0-9_-]{11}$' OR
     url ~ '^https://www\.instagram\.com/(p|reel)/[A-Za-z0-9_-]+/$' OR
@@ -11,10 +12,12 @@ CREATE FUNCTION public.valid_social_video_url(url text) RETURNS boolean LANGUAGE
     url ~ '^https://fb\.watch/[A-Za-z0-9_-]+/$'
   );
 $$;
+ALTER TABLE hotels DROP CONSTRAINT IF EXISTS hotel_social_video_valid;
 ALTER TABLE hotels ADD CONSTRAINT hotel_social_video_valid CHECK (public.valid_social_video_url(social_video_url) AND (social_video_url IS NULL OR video_url IS NULL));
+ALTER TABLE accommodation_applications DROP CONSTRAINT IF EXISTS application_social_video_valid;
 ALTER TABLE accommodation_applications ADD CONSTRAINT application_social_video_valid CHECK (public.valid_social_video_url(social_video_url) AND (social_video_url IS NULL OR video_url IS NULL));
 
-CREATE FUNCTION public.set_hotel_social_video(p_hotel uuid, p_url text) RETURNS void
+CREATE OR REPLACE FUNCTION public.set_hotel_social_video(p_hotel uuid, p_url text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF NOT public.app_manages_hotel(p_hotel) THEN RAISE EXCEPTION 'Not authorized' USING ERRCODE = '42501'; END IF;
@@ -33,7 +36,7 @@ BEGIN
 END $$;
 
 -- Keep the approved external link in the same transaction as property creation.
-CREATE FUNCTION public.copy_approved_social_video() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.copy_approved_social_video() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF NEW.status = 'approved' AND NEW.hotel_id IS NOT NULL AND NEW.social_video_url IS NOT NULL
@@ -43,6 +46,7 @@ BEGIN
   RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION public.copy_approved_social_video() FROM PUBLIC;
+DROP TRIGGER IF EXISTS application_social_video_approval ON accommodation_applications;
 CREATE TRIGGER application_social_video_approval AFTER UPDATE ON accommodation_applications
 FOR EACH ROW EXECUTE FUNCTION public.copy_approved_social_video();
 COMMIT;

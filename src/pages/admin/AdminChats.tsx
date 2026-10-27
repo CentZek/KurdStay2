@@ -36,6 +36,9 @@ export default function AdminChats() {
   const [reply, setReply] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [changingStatus, setChangingStatus] = useState(false)
+  const [error, setError] = useState('')
+  const requestVersion = useRef(0)
   const [filter, setFilter] = useState<'open' | 'closed' | 'all'>('open')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -45,7 +48,7 @@ export default function AdminChats() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages.length, selectedSession])
 
   useEffect(() => {
     if (profile?.role !== 'admin') return
@@ -59,8 +62,9 @@ export default function AdminChats() {
     let timer: number
     async function poll() {
       try {
-        const { data } = await supabase.from('chat_messages').select('*')
+        const { data, error: readError } = await supabase.from('chat_messages').select('*')
           .eq('session_id', selectedSession).order('created_at')
+        if (active && readError) setError(t('common.errorOccurred'))
         if (active && data) setMessages(data)
       } catch { /* Retry after temporary connectivity errors. */ }
       finally { if (active) timer = window.setTimeout(poll, 3000) }
@@ -70,7 +74,8 @@ export default function AdminChats() {
   }, [selectedSession, profile?.role])
 
   async function fetchSessions(showLoading = true) {
-    if (showLoading) setLoading(true)
+    const version = ++requestVersion.current
+    if (showLoading) { setLoading(true); setError('') }
     let query = supabase
       .from('chat_sessions')
       .select('*')
@@ -80,7 +85,9 @@ export default function AdminChats() {
       query = query.eq('status', filter)
     }
 
-    const { data } = await query
+    const { data, error: fetchError } = await query
+    if (version !== requestVersion.current) return
+    if (fetchError) setError(t('common.errorOccurred'))
     if (data) {
       // Fetch last message for each session
       const sessionsWithMeta = await Promise.all(
@@ -104,61 +111,54 @@ export default function AdminChats() {
           }
         })
       )
+      if (version !== requestVersion.current) return
       setSessions(sessionsWithMeta)
     }
     setLoading(false)
   }
 
-  async function openSession(id: string) {
+  function openSession(id: string) {
+    if (sending || changingStatus) return
+    setMessages([])
+    setReply('')
+    setError('')
     setSelectedSession(id)
-    const { data } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('session_id', id)
-      .order('created_at', { ascending: true })
-
-    setMessages(data || [])
   }
 
   async function sendReply() {
-    if (!reply.trim() || !selectedSession || sending) return
+    if (!reply.trim() || !selectedSession || sending || changingStatus) return
     setSending(true)
+    setError('')
 
     const { error } = await supabase.from('chat_messages').insert({
       session_id: selectedSession,
       role: 'agent',
       content: reply.trim(),
     })
-    if (error) { setSending(false); return }
+    if (error) { setError(t('common.errorOccurred')); setSending(false); return }
 
-    await supabase
+    const { error: sessionError } = await supabase
       .from('chat_sessions')
       .update({ needs_agent: false, updated_at: new Date().toISOString() })
       .eq('id', selectedSession)
 
+    if (sessionError) setError(t('common.errorOccurred'))
     setReply('')
     setSending(false)
   }
 
-  async function closeSession(id: string) {
-    await supabase
-      .from('chat_sessions')
-      .update({ status: 'closed', updated_at: new Date().toISOString() })
-      .eq('id', id)
-
-    if (selectedSession === id) {
-      setSelectedSession(null)
-      setMessages([])
-    }
-    fetchSessions()
-  }
-
-  async function reopenSession(id: string) {
-    await supabase
-      .from('chat_sessions')
-      .update({ status: 'open', updated_at: new Date().toISOString() })
-      .eq('id', id)
-    fetchSessions()
+  async function changeSessionStatus(id: string, status: 'open' | 'closed') {
+    if (changingStatus || sending) return
+    setChangingStatus(true)
+    setError('')
+    try {
+      const { error } = await supabase.from('chat_sessions')
+        .update({ status, updated_at: new Date().toISOString() }).eq('id', id).select('id').single()
+      if (error) throw error
+      if (status === 'closed') { setSelectedSession(null); setMessages([]); setReply('') }
+      await fetchSessions()
+    } catch { setError(t('common.errorOccurred')) }
+    finally { setChangingStatus(false) }
   }
 
   if (profile?.role !== 'admin') {
@@ -209,7 +209,7 @@ export default function AdminChats() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex items-center gap-4 mb-6">
-        <Link to="/admin" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+        <Link to="/admin" aria-label={t('common.back')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </Link>
         <div>
@@ -218,15 +218,18 @@ export default function AdminChats() {
         </div>
       </div>
 
-      <div className="flex gap-6 h-[calc(100vh-200px)] min-h-[500px]">
+      {error && <div role="alert" className="feedback-message error">{error} <button onClick={() => fetchSessions()}>{t('ux.retry')}</button></div>}
+      <div className={`admin-chat-layout ${selectedSession ? 'has-selection' : ''}`}>
         {/* Sessions list */}
-        <div className="w-80 shrink-0 bg-white rounded-2xl border border-gray-200 flex flex-col overflow-hidden">
+        <div className="admin-chat-list bg-white rounded-2xl border border-gray-200 flex flex-col overflow-hidden">
           {/* Filter tabs */}
           <div className="flex border-b border-gray-200 p-2 gap-1 shrink-0">
             {(['open', 'closed', 'all'] as const).map(f => (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                disabled={sending || changingStatus}
+                aria-pressed={filter === f}
+                onClick={() => { requestVersion.current++; setSelectedSession(null); setMessages([]); setReply(''); setFilter(f) }}
                 className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
                   filter === f ? 'bg-primary-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}
@@ -251,6 +254,8 @@ export default function AdminChats() {
                 {sessions.map(session => (
                   <button
                     key={session.id}
+                    disabled={sending || changingStatus}
+                    aria-pressed={selectedSession === session.id}
                     onClick={() => openSession(session.id)}
                     className={`w-full text-start p-3 hover:bg-gray-50 transition-colors ${
                       selectedSession === session.id ? 'bg-primary-50 border-r-2 border-primary-600' : ''
@@ -289,10 +294,11 @@ export default function AdminChats() {
         </div>
 
         {/* Chat view */}
-        <div className="flex-1 bg-white rounded-2xl border border-gray-200 flex flex-col overflow-hidden">
+        <div className="admin-chat-detail bg-white rounded-2xl border border-gray-200 flex flex-col overflow-hidden">
           {selectedSession ? (
             <>
               {/* Chat header */}
+              <button className="admin-chat-back" disabled={sending || changingStatus} onClick={() => { setSelectedSession(null); setMessages([]); setReply('') }}><ArrowLeft size={18} />{t('common.back')}</button>
               <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">
@@ -305,7 +311,8 @@ export default function AdminChats() {
                 <div className="flex items-center gap-2">
                   {currentSession?.status === 'open' ? (
                     <button
-                      onClick={() => closeSession(selectedSession)}
+                      disabled={changingStatus || sending}
+                      onClick={() => changeSessionStatus(selectedSession, 'closed')}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors"
                     >
                       <XIcon className="w-3 h-3" />
@@ -313,7 +320,8 @@ export default function AdminChats() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => reopenSession(selectedSession)}
+                      disabled={changingStatus || sending}
+                      onClick={() => changeSessionStatus(selectedSession, 'open')}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition-colors"
                     >
                       {t('chats.reopen')}
@@ -327,7 +335,7 @@ export default function AdminChats() {
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex ${msg.role === 'customer' ? 'justify-start' : 'justify-end'}`}>
                     <div className={`max-w-[70%] ${msg.role === 'customer' ? '' : ''}`}>
-                      <div className={`px-3 py-2 rounded-xl text-sm whitespace-pre-wrap ${
+                      <div className={`px-3 py-2 rounded-xl text-sm whitespace-pre-wrap break-words ${
                         msg.role === 'customer'
                           ? 'bg-gray-100 text-gray-800 rounded-bl-sm'
                           : msg.role === 'agent'
@@ -352,14 +360,15 @@ export default function AdminChats() {
                     type="text"
                     value={reply}
                     onChange={e => setReply(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply() } }}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendReply() } }}
                     placeholder={t('chats.replyPlaceholder')}
                     className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     disabled={sending}
                   />
                   <button
+                    aria-label={t('common.submit')}
                     onClick={sendReply}
-                    disabled={!reply.trim() || sending}
+                    disabled={!reply.trim() || sending || changingStatus}
                     className="bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 text-white rounded-xl px-4 py-2.5 transition-colors disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

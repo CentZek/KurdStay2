@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, X, ImageIcon, Loader2, GripVertical } from 'lucide-react'
 import { functionHeaders } from '../lib/session'
@@ -7,12 +7,17 @@ interface ImageUploaderProps {
   images: string[]
   onChange: (images: string[]) => void
   folder: string
+  onBusyChange?: (busy: boolean) => void
   maxImages?: number
 }
 
-export default function ImageUploader({ images, onChange, folder, maxImages = 20 }: ImageUploaderProps) {
+export default function ImageUploader({ images, onChange, folder, onBusyChange, maxImages = 20 }: ImageUploaderProps) {
   const { t } = useTranslation()
   const [uploading, setUploading] = useState(false)
+  useEffect(() => {
+    onBusyChange?.(uploading)
+    return () => onBusyChange?.(false)
+  }, [uploading, onBusyChange])
   const [uploadError, setUploadError] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -74,6 +79,7 @@ export default function ImageUploader({ images, onChange, folder, maxImages = 20
   }
 
   function handleReorderStart(index: number) {
+    if (uploading) return
     setDragIndex(index)
   }
 
@@ -83,6 +89,7 @@ export default function ImageUploader({ images, onChange, folder, maxImages = 20
   }
 
   function handleReorderDrop(e: React.DragEvent, index: number) {
+    if (uploading) return
     e.preventDefault()
     if (dragIndex === null || dragIndex === index) {
       setDragIndex(null)
@@ -149,7 +156,7 @@ export default function ImageUploader({ images, onChange, folder, maxImages = 20
           {images.map((url, index) => (
             <div
               key={url}
-              draggable
+              draggable={!uploading}
               onDragStart={() => handleReorderStart(index)}
               onDragOver={e => handleReorderOver(e, index)}
               onDrop={e => handleReorderDrop(e, index)}
@@ -174,6 +181,8 @@ export default function ImageUploader({ images, onChange, folder, maxImages = 20
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
               <button
                 type="button"
+                disabled={uploading}
+                aria-label={`${t('common.delete')} ${t('uploader.imageAlt', { n: index + 1 })}`}
                 onClick={() => removeImage(index)}
                 className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
               >

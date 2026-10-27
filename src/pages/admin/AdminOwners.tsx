@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
+import AdminDialog from '../../components/AdminDialog'
 import { Plus, X, Phone, User, Building2, Pencil, UserPlus } from 'lucide-react'
 
 interface Owner {
@@ -13,6 +14,7 @@ interface Owner {
 }
 
 interface Hotel {
+  owner_id: string | null
   id: string
   name: string
   city: string
@@ -34,6 +36,7 @@ export default function AdminOwners() {
   const [hotels, setHotels] = useState<Hotel[]>([])
   const [hotelManagers, setHotelManagers] = useState<HotelManager[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
 
   const [showCreateOwner, setShowCreateOwner] = useState(false)
   const [showEditOwner, setShowEditOwner] = useState<Owner | null>(null)
@@ -50,11 +53,15 @@ export default function AdminOwners() {
   }, [profile])
 
   async function fetchData() {
+    setLoadError('')
     const [ownersRes, hotelsRes, managersRes] = await Promise.all([
       supabase.from('profiles').select('id, name, username, phone, created_at').eq('role', 'hotel_owner').order('created_at', { ascending: false }),
-      supabase.from('hotels').select('id, name, city, currency, phone, contact_person').order('name'),
+      supabase.from('hotels').select('id, name, city, currency, phone, contact_person, owner_id').order('name'),
       supabase.from('hotel_managers').select('id, hotel_id, profile_id'),
     ])
+    if ([ownersRes, hotelsRes, managersRes].some(result => result.error)) {
+      setLoadError(t('common.errorOccurred')); setLoading(false); return
+    }
     setOwners(ownersRes.data || [])
     setHotels(hotelsRes.data || [])
     setHotelManagers(managersRes.data || [])
@@ -62,12 +69,13 @@ export default function AdminOwners() {
   }
 
   function getHotelManagers(hotelId: string) {
-    const managerLinks = hotelManagers.filter(hm => hm.hotel_id === hotelId)
-    return managerLinks.map(link => owners.find(o => o.id === link.profile_id)).filter(Boolean) as Owner[]
+    const primary = hotels.find(h => h.id === hotelId)?.owner_id
+    return owners.filter(owner => owner.id === primary || hotelManagers.some(link => link.hotel_id === hotelId && link.profile_id === owner.id))
   }
 
   async function createOwnerAccount(e: React.FormEvent) {
     e.preventDefault()
+    if (formLoading) return
     setFormError('')
     setFormLoading(true)
 
@@ -76,16 +84,13 @@ export default function AdminOwners() {
       p_password: createForm.password,
       p_name: createForm.name,
       p_role: 'hotel_owner',
+      p_phone: createForm.phone.trim() || null,
     })
 
     if (error) { setFormError(error.message); setFormLoading(false); return }
 
     const result = typeof data === 'string' ? JSON.parse(data) : data
-    if (!result.success) { setFormError(result.message); setFormLoading(false); return }
-
-    if (createForm.phone) {
-      await supabase.from('profiles').update({ phone: createForm.phone }).eq('id', result.user.id)
-    }
+    if (!result?.success) { setFormError(result?.message || t('common.errorOccurred')); setFormLoading(false); return }
 
     setFormLoading(false)
     setShowCreateOwner(false)
@@ -95,7 +100,7 @@ export default function AdminOwners() {
 
   async function updateOwner(e: React.FormEvent) {
     e.preventDefault()
-    if (!showEditOwner) return
+    if (!showEditOwner || formLoading) return
     setFormError('')
     setFormSuccess('')
     setFormLoading(true)
@@ -117,7 +122,8 @@ export default function AdminOwners() {
       setFormSuccess(t('admin.managers.updated'))
       setFormLoading(false)
       fetchData()
-      setTimeout(() => { setShowEditOwner(null); setFormSuccess('') }, 1000)
+      setShowEditOwner(null)
+      setFormSuccess('')
     } catch (err: any) {
       setFormError(err?.message || t('admin.managers.unexpectedError'))
       setFormLoading(false)
@@ -125,24 +131,31 @@ export default function AdminOwners() {
   }
 
   async function assignManager(hotelId: string, profileId: string) {
+    if (formLoading) return
     setFormLoading(true)
-    await supabase.from('hotel_managers').insert({ hotel_id: hotelId, profile_id: profileId })
-    await supabase.from('hotels').update({ owner_id: profileId }).eq('id', hotelId)
-    await fetchData()
-    setFormLoading(false)
+    setFormError('')
+    try {
+      // Additional managers have access through hotel_managers. Preserve the primary owner.
+      const { error } = await supabase.from('hotel_managers').insert({ hotel_id: hotelId, profile_id: profileId })
+      if (error) throw error
+      await fetchData()
+    } catch { setFormError(t('common.errorOccurred')) }
+    finally { setFormLoading(false) }
   }
 
   async function removeManager(hotelId: string, profileId: string) {
+    if (formLoading) return
     setFormLoading(true)
-    await supabase.from('hotel_managers').delete().eq('hotel_id', hotelId).eq('profile_id', profileId)
-    const remaining = hotelManagers.filter(hm => hm.hotel_id === hotelId && hm.profile_id !== profileId)
-    if (remaining.length > 0) {
-      await supabase.from('hotels').update({ owner_id: remaining[0].profile_id }).eq('id', hotelId)
-    } else {
-      await supabase.from('hotels').update({ owner_id: null }).eq('id', hotelId)
-    }
-    await fetchData()
-    setFormLoading(false)
+    setFormError('')
+    try {
+      if (hotels.find(h => h.id === hotelId)?.owner_id === profileId) {
+        const { error } = await supabase.from('hotels').update({ owner_id: null }).eq('id', hotelId).select('id').single()
+        if (error) throw error
+      }
+      const { error } = await supabase.from('hotel_managers').delete().eq('hotel_id', hotelId).eq('profile_id', profileId)
+      if (error) throw error
+    } catch { setFormError(t('common.errorOccurred')) }
+    finally { await fetchData(); setFormLoading(false) }
   }
 
   if (profile?.role !== 'admin') {
@@ -152,13 +165,13 @@ export default function AdminOwners() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="dashboard-heading">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{t('admin.managers.title')}</h1>
           <p className="text-sm text-gray-500 mt-1">{t('admin.managers.subtitle')}</p>
         </div>
         <button
-          onClick={() => setShowCreateOwner(true)}
+          onClick={() => { setFormError(''); setShowCreateOwner(true) }}
           className="bg-primary-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -166,6 +179,8 @@ export default function AdminOwners() {
         </button>
       </div>
 
+      {loadError && <div role="alert" className="feedback-message error">{loadError} <button onClick={fetchData}>{t('ux.retry')}</button></div>}
+      {formError && !showCreateOwner && !showEditOwner && !showAssignModal && <p role="alert" className="feedback-message error">{formError}</p>}
       {loading ? (
         <p className="text-gray-500">{t('common.loading')}</p>
       ) : (
@@ -185,7 +200,7 @@ export default function AdminOwners() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {owners.map(owner => {
-                  const assignedHotels = hotels.filter(h => hotelManagers.some(hm => hm.hotel_id === h.id && hm.profile_id === owner.id))
+                  const assignedHotels = hotels.filter(h => getHotelManagers(h.id).some(manager => manager.id === owner.id))
                   return (
                     <div key={owner.id} className="bg-white rounded-2xl border border-gray-200 p-5 hover:border-gray-300 transition-colors">
                       <div className="flex items-start justify-between mb-3">
@@ -199,6 +214,7 @@ export default function AdminOwners() {
                           </div>
                         </div>
                         <button
+                          aria-label={`${t('common.edit')} ${owner.name}`}
                           onClick={() => { setShowEditOwner(owner); setEditForm({ name: owner.name, username: owner.username, password: '', phone: owner.phone || '' }); setFormError(''); setFormSuccess('') }}
                           className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                         >
@@ -285,6 +301,7 @@ export default function AdminOwners() {
                             </div>
 
                             <button
+                              disabled={formLoading}
                               onClick={() => removeManager(hotel.id, mgr.id)}
                               className="ms-1 p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                               title={t('admin.managers.removeManagerTitle')}
@@ -309,103 +326,99 @@ export default function AdminOwners() {
 
       {/* Create Account Modal */}
       {showCreateOwner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 m-4 shadow-xl">
+        <AdminDialog title={t('admin.managers.createTitle')} onClose={() => { setShowCreateOwner(false); setFormError('') }} busy={formLoading} className="max-w-md p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-gray-900">{t('admin.managers.createTitle')}</h2>
-              <button onClick={() => { setShowCreateOwner(false); setFormError('') }}>
+              <button disabled={formLoading} aria-label={t('common.cancel')} onClick={() => { setShowCreateOwner(false); setFormError('') }}>
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
 
-            {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{formError}</div>}
+            {formError && <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{formError}</div>}
 
             <form onSubmit={createOwnerAccount} className="space-y-4">
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('admin.managers.managerName')} *</label>
-                <input type="text" required value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} placeholder={t('admin.managers.managerNamePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="createForm-name" className="text-sm text-gray-600 font-medium">{t('admin.managers.managerName')} *</label>
+                <input id="createForm-name" type="text" required value={createForm.name} onChange={e => setCreateForm({ ...createForm, name: e.target.value })} placeholder={t('admin.managers.managerNamePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.username')} *</label>
-                <input type="text" required value={createForm.username} onChange={e => setCreateForm({ ...createForm, username: e.target.value })} placeholder={t('admin.managers.usernamePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="createForm-username" className="text-sm text-gray-600 font-medium">{t('common.username')} *</label>
+                <input id="createForm-username" type="text" required minLength={3} maxLength={100} value={createForm.username} onChange={e => setCreateForm({ ...createForm, username: e.target.value })} placeholder={t('admin.managers.usernamePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.password')} *</label>
-                <input type="text" required minLength={6} value={createForm.password} onChange={e => setCreateForm({ ...createForm, password: e.target.value })} placeholder={t('admin.managers.passwordPlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="createForm-password" className="text-sm text-gray-600 font-medium">{t('common.password')} *</label>
+                <input id="createForm-password" type="password" autoComplete="new-password" required minLength={6} value={createForm.password} onChange={e => setCreateForm({ ...createForm, password: e.target.value })} placeholder={t('admin.managers.passwordPlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 <p className="text-xs text-gray-400 mt-1">{t('admin.managers.passwordHelp')}</p>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('admin.managers.phoneNumber')}</label>
-                <input type="tel" value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} placeholder={t('admin.managers.phonePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="createForm-phone" className="text-sm text-gray-600 font-medium">{t('admin.managers.phoneNumber')}</label>
+                <input id="createForm-phone" type="tel" value={createForm.phone} onChange={e => setCreateForm({ ...createForm, phone: e.target.value })} placeholder={t('admin.managers.phonePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <button type="submit" disabled={formLoading} className="w-full bg-primary-600 text-white py-3 rounded-xl font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50">
                 {formLoading ? t('admin.managers.creating') : t('home.createAccount')}
               </button>
             </form>
-          </div>
-        </div>
+        </AdminDialog>
       )}
 
       {/* Edit Owner Modal */}
       {showEditOwner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 m-4 shadow-xl">
+        <AdminDialog title={t('admin.managers.editTitle')} onClose={() => { setShowEditOwner(null); setFormError('') }} busy={formLoading} className="max-w-md p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-gray-900">{t('admin.managers.editTitle')}</h2>
-              <button onClick={() => { setShowEditOwner(null); setFormError(''); setFormSuccess('') }}>
+              <button disabled={formLoading} aria-label={t('common.cancel')} onClick={() => { setShowEditOwner(null); setFormError(''); setFormSuccess('') }}>
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
 
-            {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{formError}</div>}
+            {formError && <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{formError}</div>}
             {formSuccess && <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">{formSuccess}</div>}
 
             <form onSubmit={updateOwner} className="space-y-4">
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.name')} *</label>
-                <input type="text" required value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="editForm-name" className="text-sm text-gray-600 font-medium">{t('common.name')} *</label>
+                <input id="editForm-name" type="text" required value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.username')} *</label>
-                <input type="text" required value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="editForm-username" className="text-sm text-gray-600 font-medium">{t('common.username')} *</label>
+                <input id="editForm-username" type="text" required minLength={3} maxLength={100} value={editForm.username} onChange={e => setEditForm({ ...editForm, username: e.target.value })} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('admin.managers.newPassword')}</label>
+                <label htmlFor="editForm-password" className="text-sm text-gray-600 font-medium">{t('admin.managers.newPassword')}</label>
                 <p className="text-xs text-gray-400 mb-1">{t('admin.managers.newPasswordHelp')}</p>
-                <input type="text" value={editForm.password} onChange={e => setEditForm({ ...editForm, password: e.target.value })} placeholder={t('admin.managers.newPasswordPlaceholder')} minLength={editForm.password ? 6 : undefined} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <input id="editForm-password" type="password" autoComplete="new-password" value={editForm.password} onChange={e => setEditForm({ ...editForm, password: e.target.value })} placeholder={t('admin.managers.newPasswordPlaceholder')} minLength={editForm.password ? 6 : undefined} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('admin.managers.phoneNumber')}</label>
-                <input type="tel" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })} placeholder={t('admin.managers.phonePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                <label htmlFor="editForm-phone" className="text-sm text-gray-600 font-medium">{t('admin.managers.phoneNumber')}</label>
+                <input id="editForm-phone" type="tel" value={editForm.phone} onChange={e => setEditForm({ ...editForm, phone: e.target.value })} placeholder={t('admin.managers.phonePlaceholder')} className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
               </div>
               <button type="submit" disabled={formLoading} className="w-full bg-primary-600 text-white py-3 rounded-xl font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50">
                 {formLoading ? t('admin.managers.saving') : t('admin.managers.saveChanges')}
               </button>
             </form>
-          </div>
-        </div>
+        </AdminDialog>
       )}
 
       {/* Assign Manager Modal */}
       {showAssignModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 m-4 shadow-xl">
+        <AdminDialog title={t('admin.managers.assignManager')} onClose={() => { setShowAssignModal(null); setFormError('') }} busy={formLoading} className="max-w-md p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">{t('admin.managers.assignManager')}</h2>
                 <p className="text-sm text-gray-500 mt-0.5">{showAssignModal.name}</p>
               </div>
-              <button onClick={() => setShowAssignModal(null)}>
+              <button disabled={formLoading} aria-label={t('common.cancel')} onClick={() => setShowAssignModal(null)}>
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
 
+            {formError && <p role="alert" className="feedback-message error">{formError}</p>}
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {owners.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-4">{t('admin.managers.assignEmpty')}</p>
               ) : (
                 owners.map(owner => {
-                  const isAssigned = hotelManagers.some(hm => hm.hotel_id === showAssignModal.id && hm.profile_id === owner.id)
+                  const isAssigned = getHotelManagers(showAssignModal.id).some(manager => manager.id === owner.id)
                   return (
                     <div key={owner.id} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${isAssigned ? 'bg-primary-50 border-primary-200' : 'bg-gray-50 border-gray-200'}`}>
                       <div className="flex items-center gap-3">
@@ -439,8 +452,7 @@ export default function AdminOwners() {
                 })
               )}
             </div>
-          </div>
-        </div>
+        </AdminDialog>
       )}
     </div>
   )

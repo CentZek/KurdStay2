@@ -29,6 +29,7 @@ interface ExtractedData {
   star_rating: number | null
   check_in_time: string | null
   check_out_time: string | null
+  room_types?: { name?: string; description?: string; max_guests?: number; base_price?: number; amenities?: string[]; images?: string[] }[]
 }
 
 type ImportStep = 'input' | 'loading' | 'review' | 'success'
@@ -50,11 +51,12 @@ export default function AdminImportHotel() {
   const [roomTextContent, setRoomTextContent] = useState('')
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
-  const [debugInfo, setDebugInfo] = useState<any>(null)
   const [existingHotels, setExistingHotels] = useState<{ id: string; name: string }[]>([])
   const [selectedHotelId, setSelectedHotelId] = useState('')
   const [formStep, setFormStep] = useState<FormStep>('basics')
   const [submitting, setSubmitting] = useState(false)
+  const [imageBusy, setImageBusy] = useState(false)
+  const importIds = useRef({ hotel: crypto.randomUUID(), rooms: [] as string[], owner: '' })
   const [owners, setOwners] = useState<{ id: string; name: string; email: string }[]>([])
   const [createOwnerAccount, setCreateOwnerAccount] = useState(true)
   const [ownerUsername, setOwnerUsername] = useState('')
@@ -114,8 +116,6 @@ export default function AdminImportHotel() {
       )
 
       const result = await response.json()
-      console.log('Import result:', JSON.stringify(result._debug, null, 2))
-      if (result._debug) setDebugInfo(result._debug)
 
       if (!response.ok || result.error) {
         setError(result.error || t('importHotel.errors.importFailed', { status: response.status }))
@@ -151,6 +151,7 @@ export default function AdminImportHotel() {
     }
     setError('')
     setSuccessMsg('')
+    importIds.current.rooms = []
     setFormRoomTypes(parsed)
     setFormStep('rooms')
     setImportStep('review')
@@ -170,6 +171,8 @@ export default function AdminImportHotel() {
   }
 
   function populateForm(data: ExtractedData) {
+    importIds.current = { hotel: crypto.randomUUID(), rooms: [], owner: '' }
+    setCreatedCredentials(null)
     setForm({
       name: data.name || '',
       city: data.city || '',
@@ -187,9 +190,16 @@ export default function AdminImportHotel() {
       latitude: data.latitude != null ? String(data.latitude) : '',
       longitude: data.longitude != null ? String(data.longitude) : '',
     })
-    setFormImages(data.images || [])
-    setFormAmenities(data.amenities || [])
-    setFormRoomTypes((data as any).room_types || [])
+    const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+    setFormImages(strings(data.images))
+    setFormAmenities(strings(data.amenities))
+    setFormRoomTypes((Array.isArray(data.room_types) ? data.room_types : []).filter(room => room && typeof room === 'object').map(room => ({
+      name: typeof room.name === 'string' ? room.name : '',
+      description: typeof room.description === 'string' ? room.description : '',
+      max_guests: Number(room.max_guests) || 2,
+      base_price: Number(room.base_price) || 0,
+      amenities: strings(room.amenities), images: strings(room.images),
+    })))
     setFormStep(importType === 'rooms-only' ? 'rooms' : 'basics')
 
     const creds = generateCredentials(data.name || '')
@@ -199,146 +209,84 @@ export default function AdminImportHotel() {
   }
 
   async function fetchOwners() {
-    const { data } = await supabase.from('profiles').select('id, name, email').eq('role', 'hotel_owner')
+    const { data, error } = await supabase.from('profiles').select('id, name, email').eq('role', 'hotel_owner')
+    if (error) { setError(t('common.errorOccurred')); return }
     setOwners(data || [])
   }
 
   async function fetchExistingHotels() {
-    const { data } = await supabase.from('hotels').select('id, name').order('name')
+    const { data, error } = await supabase.from('hotels').select('id, name').order('name')
+    if (error) { setError(t('common.errorOccurred')); return }
     setExistingHotels(data || [])
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (submitting) return
-    setSubmitting(true)
+    if (submitting || imageBusy) return
     setError('')
-
-    // Rooms-only mode: just insert room types for selected hotel
-    if (importType === 'rooms-only' && selectedHotelId) {
-      const roomPayloads = formRoomTypes
-        .filter(rt => rt.name && rt.base_price > 0)
-        .map(rt => ({
-          hotel_id: selectedHotelId,
-          name: rt.name,
-          description: rt.description || null,
-          max_guests: rt.max_guests || 2,
-          base_price: rt.base_price,
-          amenities: rt.amenities || [],
-          images: rt.images || [],
+    if (importType === 'rooms-only' && !selectedHotelId) {
+      setError(t('ux.selectProperty')); return
+    }
+    if (importType === 'full') {
+      if (!form.name.trim() || !form.city.trim()) {
+        setFormStep('basics'); setError(t('common.required')); return
+      }
+      if (!form.profit_margin_percentage.trim() || !Number.isFinite(Number(form.profit_margin_percentage)) || Number(form.profit_margin_percentage) < 0) {
+        setFormStep('settings'); setError(t('common.required')); return
+      }
+      if ((form.latitude && (!Number.isFinite(Number(form.latitude)) || Math.abs(Number(form.latitude)) > 90)) ||
+          (form.longitude && (!Number.isFinite(Number(form.longitude)) || Math.abs(Number(form.longitude)) > 180))) {
+        setFormStep('basics'); setError(t('common.errorOccurred')); return
+      }
+      if (createOwnerAccount && !importIds.current.owner && (!ownerName.trim() || ownerUsername.trim().length < 3 || ownerPassword.length < 6)) {
+        setFormStep('settings'); setError(t('common.required')); return
+      }
+    }
+    if ((importType === 'rooms-only' && !formRoomTypes.length) || formRoomTypes.some(rt => !rt.name.trim() || !Number.isFinite(rt.base_price) || rt.base_price <= 0 || !Number.isInteger(rt.max_guests) || rt.max_guests < 1)) {
+      setFormStep('rooms'); setError(t('importHotel.errors.roomRequired')); return
+    }
+    setSubmitting(true)
+    try {
+      let ownerId = importIds.current.owner || form.owner_id || null
+      if (importType === 'full' && createOwnerAccount && !importIds.current.owner) {
+        const { data, error } = await supabase.rpc('register_user', {
+          p_username: ownerUsername.trim(), p_password: ownerPassword, p_name: ownerName.trim(),
+          p_role: 'hotel_owner', p_phone: form.phone.trim() || null,
+        })
+        if (error) throw error
+        const result = typeof data === 'string' ? JSON.parse(data) : data
+        if (!result?.success || !result.user?.id) throw new Error(result?.message || t('common.errorOccurred'))
+        ownerId = result.user.id
+        importIds.current.owner = result.user.id
+        setCreatedCredentials({ username: ownerUsername.trim(), password: ownerPassword, name: ownerName.trim() })
+      }
+      const hotelId = importType === 'rooms-only' ? selectedHotelId : importIds.current.hotel
+      if (importType === 'full') {
+        const { error } = await supabase.from('hotels').upsert({
+          id: hotelId, name: form.name.trim(), city: form.city.trim(), location: form.location,
+          description: form.description, address: form.address, country: form.country,
+          profit_margin_percentage: Number(form.profit_margin_percentage), owner_id: ownerId,
+          images: formImages, amenities: formAmenities, status: form.status, property_type: form.property_type,
+          phone: form.phone || null, contact_person: form.contact_person || null, currency: form.currency,
+          latitude: form.latitude ? Number(form.latitude) : null, longitude: form.longitude ? Number(form.longitude) : null,
+        }).select('id').single()
+        if (error) throw error
+        // The primary owner already has access through hotels.owner_id.
+      }
+      if (formRoomTypes.length) {
+        const payloads = formRoomTypes.map((room, index) => ({
+          id: importIds.current.rooms[index] ||= crypto.randomUUID(), hotel_id: hotelId,
+          name: room.name.trim(), description: room.description || null, max_guests: room.max_guests,
+          base_price: room.base_price, amenities: room.amenities || [], images: room.images || [],
         }))
-
-      if (roomPayloads.length === 0) {
-        setSubmitting(false)
-        setError(t('importHotel.errors.roomRequired'))
-        return
+        const { error } = await supabase.from('room_types').upsert(payloads)
+        if (error) throw error
       }
-
-      const { error: roomErr } = await supabase.from('room_types').insert(roomPayloads)
-      setSubmitting(false)
-      if (roomErr) {
-        setError(roomErr.message)
-        return
-      }
-      navigate('/admin/hotels')
-      return
-    }
-
-    let ownerId = form.owner_id || null
-
-    // Create owner account if requested
-    if (createOwnerAccount && ownerUsername && ownerPassword && ownerName) {
-      const { data: regResult, error: regError } = await supabase.rpc('register_user', {
-        p_username: ownerUsername,
-        p_password: ownerPassword,
-        p_name: ownerName,
-        p_role: 'hotel_owner',
-      })
-
-      if (regError) {
-        setSubmitting(false)
-        setError(t('importHotel.errors.ownerAccountFailed', { message: regError.message }))
-        return
-      }
-
-      const regData = typeof regResult === 'string' ? JSON.parse(regResult) : regResult
-      if (!regData?.success) {
-        setSubmitting(false)
-        setError(t('importHotel.errors.ownerAccountFailed', { message: regData?.message || t('importHotel.errors.unknownError') }))
-        return
-      }
-
-      ownerId = regData.user?.id || null
-
-      // Update phone if set on the form
-      if (form.phone && ownerId) {
-        await supabase.from('profiles').update({ phone: form.phone }).eq('id', ownerId)
-      }
-    }
-
-    const payload = {
-      name: form.name,
-      city: form.city,
-      location: form.location,
-      description: form.description,
-      address: form.address,
-      country: form.country,
-      profit_margin_percentage: parseFloat(form.profit_margin_percentage),
-      owner_id: ownerId,
-      images: formImages,
-      amenities: formAmenities,
-      status: form.status,
-      property_type: form.property_type,
-      phone: form.phone || null,
-      contact_person: form.contact_person || null,
-      currency: form.currency,
-      latitude: form.latitude ? parseFloat(form.latitude) : null,
-      longitude: form.longitude ? parseFloat(form.longitude) : null,
-    }
-
-    const { data: hotelData, error: insertError } = await supabase.from('hotels').insert(payload).select('id').single()
-
-    if (insertError) {
-      setSubmitting(false)
-      setError(insertError.message)
-      return
-    }
-
-    // Link owner to hotel via hotel_managers table
-    if (ownerId && hotelData?.id) {
-      await supabase.from('hotel_managers').insert({
-        hotel_id: hotelData.id,
-        profile_id: ownerId,
-      })
-    }
-
-    // Insert room types
-    if (hotelData?.id && formRoomTypes.length > 0) {
-      const roomPayloads = formRoomTypes
-        .filter(rt => rt.name && rt.base_price > 0)
-        .map(rt => ({
-          hotel_id: hotelData.id,
-          name: rt.name,
-          description: rt.description || null,
-          max_guests: rt.max_guests || 2,
-          base_price: rt.base_price,
-          amenities: rt.amenities || [],
-          images: rt.images || [],
-        }))
-
-      if (roomPayloads.length > 0) {
-        await supabase.from('room_types').insert(roomPayloads)
-      }
-    }
-
-    setSubmitting(false)
-
-    if (createOwnerAccount && ownerUsername && ownerPassword) {
-      setCreatedCredentials({ username: ownerUsername, password: ownerPassword, name: ownerName })
-      setImportStep('success')
-    } else {
-      navigate('/admin/hotels')
-    }
+      if (importType === 'full' && importIds.current.owner) setImportStep('success')
+      else navigate('/admin/hotels')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t('common.errorOccurred'))
+    } finally { setSubmitting(false) }
   }
 
   const steps: { id: FormStep; label: string; icon: React.ReactNode }[] = importType === 'rooms-only'
@@ -353,11 +301,13 @@ export default function AdminImportHotel() {
 
   function nextStep() {
     const idx = steps.findIndex(s => s.id === formStep)
+    if (submitting || imageBusy || !formRef.current?.reportValidity()) return
     if (idx < steps.length - 1) setFormStep(steps[idx + 1].id)
   }
 
   function prevStep() {
     const idx = steps.findIndex(s => s.id === formStep)
+    if (submitting || imageBusy) return
     if (idx > 0) setFormStep(steps[idx - 1].id)
   }
 
@@ -557,7 +507,7 @@ export default function AdminImportHotel() {
             )}
 
             {error && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl">
+              <div role="alert" className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl">
                 <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
                 <p className="text-sm text-red-700">{error}</p>
               </div>
@@ -702,6 +652,7 @@ export default function AdminImportHotel() {
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <button
+        disabled={submitting || imageBusy}
         onClick={() => { setImportStep('input'); setError('') }}
         className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-6 transition-colors"
       >
@@ -723,21 +674,15 @@ export default function AdminImportHotel() {
           </div>
         </div>
 
-        {debugInfo && (
-          <div className="mx-6 mt-4 p-3 bg-gray-100 rounded-lg text-xs font-mono text-gray-700">
-            <strong>Debug:</strong> Content: {debugInfo.contentLength} chars | Method: {debugInfo.fetchMethod} | Room hints: {debugInfo.roomHintsFound} | Price hints: {debugInfo.priceHintsFound} | AI rooms: {debugInfo.aiRoomTypesRaw}
-            {debugInfo.roomHintSamples?.length > 0 && <div className="mt-1">Samples: {debugInfo.roomHintSamples.join(', ')}</div>}
-            {debugInfo.priceHintSamples?.length > 0 && <div>Prices: {debugInfo.priceHintSamples.join(', ')}</div>}
-          </div>
-        )}
-
         {/* Step Navigation */}
-        <div className="flex border-b border-gray-100 px-6">
+        <div className="flex flex-wrap border-b border-gray-100 px-3">
           {steps.map((step) => (
             <button
               key={step.id}
               type="button"
-              onClick={() => setFormStep(step.id)}
+              disabled={submitting || imageBusy}
+              aria-pressed={formStep === step.id}
+              onClick={() => { if (formRef.current?.reportValidity()) setFormStep(step.id) }}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 formStep === step.id
                   ? 'border-blue-600 text-blue-600'
@@ -855,11 +800,9 @@ export default function AdminImportHotel() {
                 )}
 
                 <ImageUploader
-                  images={formImages.filter(img => !img.startsWith('http'))}
-                  onChange={(uploaded) => {
-                    const external = formImages.filter(img => img.startsWith('http'))
-                    setFormImages([...external, ...uploaded])
-                  }}
+                  onBusyChange={setImageBusy}
+                  images={formImages}
+                  onChange={setFormImages}
                   folder={form.name ? form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 40) : `hotel-${Date.now()}`}
                   maxImages={20}
                 />
@@ -989,7 +932,7 @@ export default function AdminImportHotel() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm text-gray-600 font-medium">{t('admin.marginPercentage')} *</label>
-                  <input type="number" step="0.01" required value={form.profit_margin_percentage}
+                  <input type="number" step="0.01" min="0" required value={form.profit_margin_percentage}
                     onChange={e => setForm({ ...form, profit_margin_percentage: e.target.value })}
                     className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
@@ -1096,6 +1039,7 @@ export default function AdminImportHotel() {
             {formStep !== steps[0].id && (
               <button
                 type="button"
+                disabled={submitting || imageBusy}
                 onClick={prevStep}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
               >
@@ -1106,11 +1050,12 @@ export default function AdminImportHotel() {
           </div>
           <div className="flex items-center gap-3">
             {error && (
-              <p className="text-xs text-red-600 mr-2">{error}</p>
+              <p role="alert" className="text-sm text-red-700">{error}</p>
             )}
             {formStep !== steps[steps.length - 1].id ? (
               <button
                 type="button"
+                disabled={submitting || imageBusy}
                 onClick={nextStep}
                 className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
               >
@@ -1120,7 +1065,7 @@ export default function AdminImportHotel() {
               <button
                 type="button"
                 onClick={() => formRef.current?.requestSubmit()}
-                disabled={submitting}
+                disabled={submitting || imageBusy}
                 className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {submitting ? t('importHotel.saving') : importType === 'rooms-only' ? t('importHotel.saveRoomTypes') : t('importHotel.saveHotel')}
