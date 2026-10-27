@@ -24,6 +24,15 @@ const ar = {
     skipContent: 'انتقل إلى المحتوى', editSearch: 'تعديل البحث', stayDetails: 'إقامتك', allProperties: 'كل العقارات',
     selectProperty: 'اختر عقاراً', bookingReference: 'المرجع', chooseDates: 'اختر تواريخك',
     guestCapacity: "اختر عدد ضيوف لا يتجاوز سعة الغرف المختارة.",
+    reload: 'إعادة تحميل الصفحة', loadErrorTitle: 'تعذر تحميل هذه الصفحة',
+    loadErrorDescription: 'قد تكون غير متصل أو انقطع تنزيل الصفحة. حاول مجدداً أو أعد تحميل التطبيق.',
+  },
+  routes: {
+    home: 'الرئيسية', search: 'البحث عن إقامة', hotel: 'تفاصيل الإقامة', booking: 'إكمال الحجز', confirmation: 'تأكيد الحجز',
+    login: 'تسجيل الدخول', register: 'إنشاء حساب', profile: 'ملفي الشخصي', addProperty: 'إضافة عقار', notFound: 'الصفحة غير موجودة',
+    admin: 'لوحة تحكم المدير', adminHotels: 'إدارة الفنادق', adminBookings: 'إدارة الحجوزات', adminOwners: 'إدارة الملاك',
+    adminDestinations: 'إدارة الوجهات', adminImport: 'استيراد عقار', adminChats: 'المحادثات المباشرة', adminApplications: 'طلبات أماكن الإقامة',
+    owner: 'لوحة تحكم المالك', ownerRooms: 'أنواع الغرف', ownerAvailability: 'التوفر', ownerBookings: 'حجوزات العقار',
   },
   common: {
     appTitle: 'KurdStay - فنادق ومزارع',
@@ -69,6 +78,8 @@ const ar = {
     guestCount_few: '{{count}} ضيوف',
     guestCount_many: '{{count}} ضيفاً',
     guestCount_other: '{{count}} ضيف',
+    roomCount_zero: 'لا غرف', roomCount_one: 'غرفة واحدة', roomCount_two: 'غرفتان', roomCount_few: '{{count}} غرف', roomCount_many: '{{count}} غرفة', roomCount_other: '{{count}} غرفة',
+    nightCount_zero: 'لا ليالٍ', nightCount_one: 'ليلة واحدة', nightCount_two: 'ليلتان', nightCount_few: '{{count}} ليالٍ', nightCount_many: '{{count}} ليلة', nightCount_other: '{{count}} ليلة',
     room: 'غرفة',
     from: 'من',
     status: 'الحالة',
@@ -824,7 +835,7 @@ const ar = {
     iosStep1: 'اضغط زر المشاركة أسفل Safari',
     iosStep2: 'مرر للأسفل واضغط "إضافة إلى الشاشة الرئيسية"',
     iosStep3: 'اضغط "إضافة" للتأكيد',
-    gotIt: 'فهمت!',
+    gotIt: 'فهمت!', dismiss: 'إغلاق اقتراح التثبيت', closeInstructions: 'إغلاق تعليمات التثبيت',
   },
 }
 

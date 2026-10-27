@@ -4,9 +4,9 @@ import './i18n'
 import './index.css'
 import App from './App'
 
-// Purge old releases' caches containing account/booking data or signed ID URLs.
+// Purge legacy caches that may contain private account data or signed ID images.
 if ('caches' in window) {
-  Promise.all(['supabase-api', 'supabase-images'].map(name => caches.delete(name))).catch(() => {})
+  for (const name of ['supabase-api', 'supabase-images']) caches.delete(name).catch(() => {})
 }
 
 createRoot(document.getElementById('root')!).render(

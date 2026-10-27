@@ -22,15 +22,30 @@ export default function Header() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const headerRef = useRef<HTMLElement>(null)
+  const languageTrigger = useRef<HTMLButtonElement>(null)
+  const languageMenu = useRef<HTMLDivElement>(null)
+  const mobileTrigger = useRef<HTMLButtonElement>(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [langMenuOpen, setLangMenuOpen] = useState(false)
 
   useEffect(() => { setMobileMenuOpen(false); setLangMenuOpen(false) }, [pathname])
   useEffect(() => {
+    if (!langMenuOpen) return
+    const items = languageMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')
+    const selected = languageMenu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')
+    ;(selected || items?.[0])?.focus()
+  }, [langMenuOpen])
+  useEffect(() => {
     function close(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setMobileMenuOpen(false); setLangMenuOpen(false)
-        headerRef.current?.querySelector<HTMLButtonElement>('[aria-expanded="true"]')?.focus()
+      if (event.key !== 'Escape') return
+      if (langMenuOpen) {
+        event.preventDefault()
+        setLangMenuOpen(false)
+        languageTrigger.current?.focus()
+      } else if (mobileMenuOpen) {
+        event.preventDefault()
+        setMobileMenuOpen(false)
+        mobileTrigger.current?.focus()
       }
     }
     function outside(event: PointerEvent) {
@@ -39,17 +54,36 @@ export default function Header() {
     document.addEventListener('keydown', close)
     document.addEventListener('pointerdown', outside)
     return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', outside) }
-  }, [])
+  }, [langMenuOpen, mobileMenuOpen])
 
   const languages = LANGUAGES
 
+  function openLanguageMenu() { setLangMenuOpen(true) }
+
+  function handleLanguageKeys(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!langMenuOpen) return
+    const items = Array.from(languageMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') || [])
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    let next: number | undefined
+    if (event.key === 'ArrowDown') next = (current + 1 + items.length) % items.length
+    if (event.key === 'ArrowUp') next = (current - 1 + items.length) % items.length
+    if (event.key === 'Home') next = 0
+    if (event.key === 'End') next = items.length - 1
+    if (next !== undefined) {
+      event.preventDefault()
+      items[next]?.focus()
+    }
+    if (event.key === 'Tab') setLangMenuOpen(false)
+  }
+
   function selectLanguage(code: string) {
-    changeLanguage(code)
+    void changeLanguage(code)
     setLangMenuOpen(false)
+    languageTrigger.current?.focus()
   }
 
   function handleSignOut() {
-    signOut()
+    void signOut()
     navigate('/')
   }
 
@@ -64,37 +98,40 @@ export default function Header() {
     <header ref={headerRef} className="site-header sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-[76px]">
-          <Link to="/" className="flex items-center gap-2">
-            <BrandLogo />
-          </Link>
+          <Link to="/" className="flex items-center gap-2"><BrandLogo /></Link>
 
           <nav aria-label={t('ux.navigation')} className="desktop-navigation hidden xl:flex items-center gap-2">
-            <NavLink to="/" end className="header-control">
-              {t('common.home')}
-            </NavLink>
+            <NavLink to="/" end className="header-control">{t('common.home')}</NavLink>
             <NavLink to="/search" className="header-control">{t('common.browseProperties')}</NavLink>
             <NavLink to="/add-accommodation" className="header-control header-list">{t('ux.listProperty')}</NavLink>
 
-            <div className="relative header-language">
+            <div className="relative header-language" onKeyDown={handleLanguageKeys}>
               <button
+                ref={languageTrigger}
                 onClick={() => setLangMenuOpen(!langMenuOpen)}
+                onKeyDown={event => {
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); openLanguageMenu() }
+                }}
                 aria-expanded={langMenuOpen}
+                aria-haspopup="menu"
+                aria-controls="language-menu"
                 aria-label={t('common.language')}
                 className="header-control"
               >
-                <Globe className="w-4 h-4" />
-                {languages.find(l => l.code === i18n.language)?.name}
+                <Globe className="w-4 h-4" aria-hidden="true" />
+                {languages.find(l => l.code === i18n.language)?.name || languages[0].name}
                 <ChevronDown className="w-3 h-3" aria-hidden="true" />
               </button>
               {langMenuOpen && (
-                <div className="absolute top-full mt-2 end-0 bg-gray-900 rounded-lg shadow-xl border border-white/10 py-1 min-w-[140px] animate-scale-in">
+                <div ref={languageMenu} id="language-menu" role="menu" aria-label={t('common.language')} className="absolute top-full mt-2 end-0 bg-gray-900 rounded-lg shadow-xl border border-white/10 py-1 min-w-[180px] animate-scale-in">
                   {languages.map(lang => (
                     <button
                       key={lang.code}
+                      role="menuitemradio"
+                      aria-checked={i18n.language === lang.code}
+                      tabIndex={-1}
                       onClick={() => selectLanguage(lang.code)}
-                      className={`w-full text-start px-4 py-2 text-sm hover:bg-white/5 transition-colors ${
-                        i18n.language === lang.code ? 'text-primary-400 font-medium' : 'text-gray-300'
-                      }`}
+                      className={`w-full text-start px-4 py-2 text-sm hover:bg-white/5 transition-colors ${i18n.language === lang.code ? 'text-primary-300 font-medium' : 'text-gray-200'}`}
                     >
                       {lang.name}
                     </button>
@@ -105,67 +142,45 @@ export default function Header() {
 
             {user && profile ? (
               <div className="flex items-center gap-2">
-                <NavLink
-                  to={profile.role === 'customer' ? '/profile' : getDashboardLink()}
-                  className="header-control header-account"
-                >
+                <NavLink to={profile.role === 'customer' ? '/profile' : getDashboardLink()} className="header-control header-account">
                   <User className="w-4 h-4" aria-hidden="true" />
                   {t(profile.role === 'customer' ? 'common.myProfile' : 'common.dashboard')}
                 </NavLink>
-                <button
-                  onClick={handleSignOut}
-                  className="header-control"
-                >
-                  {t('common.logout')}
-                </button>
+                <button onClick={handleSignOut} className="header-control">{t('common.logout')}</button>
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <Link
-                  to="/login"
-                  className="header-control"
-                >
-                  {t('common.login')}
-                </Link>
-                <Link
-                  to="/register"
-                  className="header-control header-register"
-                >
-                  {t('common.register')}
-                </Link>
+                <Link to="/login" className="header-control">{t('common.login')}</Link>
+                <Link to="/register" className="header-control header-register">{t('common.register')}</Link>
               </div>
             )}
           </nav>
 
           <button
+            ref={mobileTrigger}
             className="xl:hidden p-2 text-gray-200"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-expanded={mobileMenuOpen}
             aria-controls="mobile-navigation"
             aria-label={t('ux.menu')}
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {mobileMenuOpen ? <X className="w-6 h-6" aria-hidden="true" /> : <Menu className="w-6 h-6" aria-hidden="true" />}
           </button>
         </div>
 
         {mobileMenuOpen && (
           <nav id="mobile-navigation" aria-label={t('ux.navigation')} className="mobile-navigation xl:hidden border-t border-white/10 py-4">
             <div className="flex flex-col gap-3">
-              <Link to="/" className="text-gray-300 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>
-                {t('common.home')}
-              </Link>
-              <Link to="/search" className="text-gray-300 py-2 text-sm font-medium">{t('common.browseProperties')}</Link>
+              <Link to="/" className="text-gray-200 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>{t('common.home')}</Link>
+              <Link to="/search" className="text-gray-200 py-2 text-sm font-medium">{t('common.browseProperties')}</Link>
               <Link to="/add-accommodation" className="text-primary-300 py-2 text-sm font-medium">{t('ux.listProperty')}</Link>
-              <div className="flex flex-wrap gap-2 py-2">
+              <div className="flex flex-wrap gap-2 py-2" aria-label={t('common.language')}>
                 {languages.map(lang => (
                   <button
                     key={lang.code}
-                    onClick={() => { selectLanguage(lang.code); setMobileMenuOpen(false) }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      i18n.language === lang.code
-                        ? 'bg-primary-500 text-gray-950'
-                        : 'bg-white/10 text-gray-300'
-                    }`}
+                    aria-pressed={i18n.language === lang.code}
+                    onClick={() => { void changeLanguage(lang.code); setMobileMenuOpen(false) }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${i18n.language === lang.code ? 'bg-primary-300 text-gray-950' : 'bg-white/10 text-gray-200'}`}
                   >
                     {lang.name}
                   </button>
@@ -173,27 +188,15 @@ export default function Header() {
               </div>
               {user && profile ? (
                 <>
-                  {profile.role === 'customer' ? (
-                    <Link to="/profile" className="text-gray-300 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>
-                      {t('common.myProfile')}
-                    </Link>
-                  ) : (
-                    <Link to={getDashboardLink()} className="text-gray-300 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>
-                      {t('common.dashboard')}
-                    </Link>
-                  )}
-                  <button onClick={() => { handleSignOut(); setMobileMenuOpen(false) }} className="text-start text-gray-300 py-2 text-sm font-medium">
-                    {t('common.logout')}
-                  </button>
+                  <Link to={profile.role === 'customer' ? '/profile' : getDashboardLink()} className="text-gray-200 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>
+                    {t(profile.role === 'customer' ? 'common.myProfile' : 'common.dashboard')}
+                  </Link>
+                  <button onClick={() => { handleSignOut(); setMobileMenuOpen(false) }} className="text-start text-gray-200 py-2 text-sm font-medium">{t('common.logout')}</button>
                 </>
               ) : (
                 <>
-                  <Link to="/login" className="text-gray-300 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>
-                    {t('common.login')}
-                  </Link>
-                  <Link to="/register" className="bg-primary-500 text-gray-950 px-4 py-2 rounded-lg text-sm font-semibold text-center" onClick={() => setMobileMenuOpen(false)}>
-                    {t('common.register')}
-                  </Link>
+                  <Link to="/login" className="text-gray-200 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>{t('common.login')}</Link>
+                  <Link to="/register" className="bg-primary-300 text-gray-950 px-4 py-2 rounded-lg text-sm font-semibold text-center" onClick={() => setMobileMenuOpen(false)}>{t('common.register')}</Link>
                 </>
               )}
             </div>

@@ -113,10 +113,20 @@ export default function ImageUploader({ images, onChange, folder, onBusyChange, 
     <div className="space-y-3">
       {uploadError && <p role="alert" className="text-sm text-red-600">{t('common.errorOccurred')} {t('uploader.hint', { count: images.length, max: maxImages })}</p>}
       <div
+        role="button"
+        tabIndex={uploading ? -1 : 0}
+        aria-label={t('uploader.dropzone')}
+        aria-disabled={uploading}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => { if (!uploading) fileInputRef.current?.click() }}
+        onKeyDown={event => {
+          if (!uploading && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            fileInputRef.current?.click()
+          }
+        }}
         className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 ${
           dragOver
             ? 'border-primary-400 bg-primary-50'
@@ -184,7 +194,7 @@ export default function ImageUploader({ images, onChange, folder, onBusyChange, 
                 disabled={uploading}
                 aria-label={`${t('common.delete')} ${t('uploader.imageAlt', { n: index + 1 })}`}
                 onClick={() => removeImage(index)}
-                className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                className="absolute top-1.5 right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shadow-sm"
               >
                 <X className="w-3.5 h-3.5" />
               </button>

@@ -27,10 +27,14 @@ interface ChatMessage {
   created_at: string
 }
 
+const PAGE_SIZE = 25
+
 export default function AdminChats() {
   const { t } = useTranslation()
   const { profile } = useAuth()
   const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [reply, setReply] = useState('')
@@ -43,31 +47,63 @@ export default function AdminChats() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (profile?.role === 'admin') fetchSessions()
-  }, [profile, filter])
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, selectedSession])
 
   useEffect(() => {
     if (profile?.role !== 'admin') return
-    const timer = window.setInterval(() => { if (!document.hidden) fetchSessions(false) }, 5000)
-    return () => window.clearInterval(timer)
-  }, [filter, profile?.role])
+    let active = true
+    let timer: number
+    let failures = 0
+    let inFlight = false
+    async function poll(showLoading = false) {
+      if (!active || inFlight) return
+      if (document.hidden) {
+        timer = window.setTimeout(() => poll(), 5000)
+        return
+      }
+      inFlight = true
+      const succeeded = await fetchSessions(showLoading).catch(() => false)
+      inFlight = false
+      failures = succeeded ? 0 : failures + 1
+      if (active) timer = window.setTimeout(() => poll(), Math.min(30000, 5000 * 2 ** failures))
+    }
+    function resume() {
+      if (!document.hidden) { window.clearTimeout(timer); poll() }
+    }
+    poll(true)
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      active = false
+      requestVersion.current++
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', resume)
+    }
+  }, [filter, page, profile?.role])
 
   useEffect(() => {
     if (!selectedSession || profile?.role !== 'admin') return
     let active = true
     let timer: number
+    let failures = 0
     async function poll() {
+      if (document.hidden) {
+        timer = window.setTimeout(poll, 3000)
+        return
+      }
       try {
         const { data, error: readError } = await supabase.from('chat_messages').select('*')
           .eq('session_id', selectedSession).order('created_at')
-        if (active && readError) setError(t('common.errorOccurred'))
-        if (active && data) setMessages(data)
-      } catch { /* Retry after temporary connectivity errors. */ }
-      finally { if (active) timer = window.setTimeout(poll, 3000) }
+        if (!active) return
+        if (readError) {
+          failures++
+          setError(t('common.errorOccurred'))
+        } else {
+          failures = 0
+          setMessages(data || [])
+        }
+      } catch { failures++ }
+      if (active) timer = window.setTimeout(poll, Math.min(30000, 3000 * 2 ** failures))
     }
     poll()
     return () => { active = false; window.clearTimeout(timer) }
@@ -76,45 +112,25 @@ export default function AdminChats() {
   async function fetchSessions(showLoading = true) {
     const version = ++requestVersion.current
     if (showLoading) { setLoading(true); setError('') }
-    let query = supabase
-      .from('chat_sessions')
-      .select('*')
-      .order('updated_at', { ascending: false })
-
-    if (filter !== 'all') {
-      query = query.eq('status', filter)
+    const { data, error: fetchError } = await supabase.rpc('admin_list_chat_sessions', {
+      p_status: filter, p_limit: PAGE_SIZE, p_offset: page * PAGE_SIZE,
+    })
+    if (version !== requestVersion.current) return false
+    if (fetchError || !data || !Array.isArray(data.items)) {
+      setError(t('common.errorOccurred'))
+      setLoading(false)
+      return false
     }
-
-    const { data, error: fetchError } = await query
-    if (version !== requestVersion.current) return
-    if (fetchError) setError(t('common.errorOccurred'))
-    if (data) {
-      // Fetch last message for each session
-      const sessionsWithMeta = await Promise.all(
-        data.map(async (session) => {
-          const { data: msgs } = await supabase
-            .from('chat_messages')
-            .select('content, role')
-            .eq('session_id', session.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-
-          const { count } = await supabase
-            .from('chat_messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('session_id', session.id)
-
-          return {
-            ...session,
-            last_message: msgs?.[0]?.content || '',
-            message_count: count || 0,
-          }
-        })
-      )
-      if (version !== requestVersion.current) return
-      setSessions(sessionsWithMeta)
-    }
+    setSessions(data.items)
+    setTotal(Number(data.total) || 0)
     setLoading(false)
+    return true
+  }
+
+  function changePage(next: number) {
+    if (sending || changingStatus) return
+    requestVersion.current++
+    setSelectedSession(null); setMessages([]); setReply(''); setPage(next)
   }
 
   function openSession(id: string) {
@@ -229,7 +245,7 @@ export default function AdminChats() {
                 key={f}
                 disabled={sending || changingStatus}
                 aria-pressed={filter === f}
-                onClick={() => { requestVersion.current++; setSelectedSession(null); setMessages([]); setReply(''); setFilter(f) }}
+                onClick={() => { requestVersion.current++; setSelectedSession(null); setMessages([]); setReply(''); setPage(0); setFilter(f) }}
                 className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
                   filter === f ? 'bg-primary-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}
@@ -291,6 +307,11 @@ export default function AdminChats() {
               </div>
             )}
           </div>
+          {total > PAGE_SIZE && <div className="flex items-center justify-between gap-2 border-t border-gray-100 p-2 text-xs text-gray-500 shrink-0">
+            <button disabled={page === 0 || loading || sending || changingStatus} onClick={() => changePage(page - 1)} className="px-2 py-1.5 disabled:opacity-40">{t('common.back')}</button>
+            <span>{page + 1} / {Math.ceil(total / PAGE_SIZE)}</span>
+            <button disabled={(page + 1) * PAGE_SIZE >= total || loading || sending || changingStatus} onClick={() => changePage(page + 1)} className="px-2 py-1.5 disabled:opacity-40">{t('common.next')}</button>
+          </div>}
         </div>
 
         {/* Chat view */}

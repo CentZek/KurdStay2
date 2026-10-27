@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { changeLanguage } from '../i18n'
 import { hasSession, setSession } from '../lib/session'
@@ -27,6 +27,8 @@ interface AuthContextType {
   user: UserProfile | null
   profile: UserProfile | null
   loading: boolean
+  restorationError: string | null
+  retryRestore: () => Promise<void>
   signIn: (username: string, password: string) => Promise<{ error: any }>
   signUp: (input: SignUpInput) => Promise<{ error: any; user?: UserProfile }>
   signOut: () => Promise<void>
@@ -39,45 +41,86 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let active = true
-    localStorage.removeItem('stayhub_user')
-    async function restore() {
-      try {
-        if (!hasSession()) return
-        const { data, error } = await supabase.rpc('current_profile')
-        if (active && !error && data) persist(data as UserProfile)
-        else if (!error && !data) setSession('')
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-    restore().catch(() => {})
-    return () => { active = false }
-  }, [])
+  const [restorationError, setRestorationError] = useState<string | null>(null)
+  const restoreRequest = useRef(0)
+  const mounted = useRef(false)
 
   function persist(userProfile: UserProfile) {
     setUser(userProfile)
     if (userProfile.language_preference) changeLanguage(userProfile.language_preference)
   }
 
+  const retryRestore = useCallback(async () => {
+    const request = ++restoreRequest.current
+    setLoading(true)
+    setRestorationError(null)
+    try {
+      if (!hasSession()) {
+        if (mounted.current && request === restoreRequest.current) setUser(null)
+        return
+      }
+      const { data, error } = await supabase.rpc('current_profile')
+      if (!mounted.current || request !== restoreRequest.current) return
+      if (error) {
+        setRestorationError(error.message || 'Your session could not be restored. Check your connection and try again.')
+        return
+      }
+      if (data) {
+        persist(data as UserProfile)
+      } else {
+        setUser(null)
+        setSession('')
+      }
+    } catch (error) {
+      if (!mounted.current || request !== restoreRequest.current) return
+      const message = error instanceof Error ? error.message : ''
+      setRestorationError(message || 'Your session could not be restored. Check your connection and try again.')
+    } finally {
+      if (mounted.current && request === restoreRequest.current) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    mounted.current = true
+    localStorage.removeItem('stayhub_user')
+    const handleExpiredSession = () => {
+      restoreRequest.current += 1
+      setUser(null)
+      setRestorationError(null)
+      setLoading(false)
+      setSession('')
+    }
+    window.addEventListener('stay-session-expired', handleExpiredSession)
+    retryRestore()
+    return () => {
+      mounted.current = false
+      restoreRequest.current += 1
+      window.removeEventListener('stay-session-expired', handleExpiredSession)
+    }
+  }, [retryRestore])
+
   async function signIn(username: string, password: string) {
+    const request = ++restoreRequest.current
+    setLoading(false)
     const { data, error } = await supabase.rpc('login', {
       p_username: username,
       p_password: password,
     })
 
+    if (request !== restoreRequest.current) return { error: { message: 'Sign-in changed. Please try again.' } }
     if (error) return { error: { message: error.message } }
-    if (!data.success) return { error: { message: data.message } }
+    if (!data?.success) return { error: { message: data?.message } }
 
     if (!data.session_token) return { error: { message: 'Secure sign-in is unavailable. Please try again later.' } }
     setSession(data.session_token)
+    setRestorationError(null)
     persist(data.user as UserProfile)
     return { error: null }
   }
 
   async function signUp(input: SignUpInput) {
+    const request = ++restoreRequest.current
+    setLoading(false)
     const { data, error } = await supabase.rpc('register_user', {
       p_username: input.username,
       p_password: input.password,
@@ -88,24 +131,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       p_language: input.language ?? 'en',
     })
 
+    if (request !== restoreRequest.current) return { error: { message: 'Sign-in changed. Please try again.' } }
     if (error) return { error: { message: error.message } }
-    if (!data.success) return { error: { message: data.message } }
+    if (!data?.success) return { error: { message: data?.message } }
 
     if (!data.session_token) return { error: { message: 'Account created. Please sign in after the service update.' } }
     setSession(data.session_token)
     const userProfile = data.user as UserProfile
+    setRestorationError(null)
     persist(userProfile)
     return { error: null, user: userProfile }
   }
 
   async function refreshProfile() {
     if (!user) return
+    const request = restoreRequest.current
     const { data } = await supabase
       .from('profiles')
       .select('id, name, username, role, language_preference, phone, email, phone_verified')
       .eq('id', user.id)
       .maybeSingle()
-    if (data) persist(data as UserProfile)
+    if (data && mounted.current && request === restoreRequest.current) persist(data as UserProfile)
   }
 
   function setPhoneVerified() {
@@ -114,15 +160,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    try { await supabase.rpc('logout') } finally {
+    const request = ++restoreRequest.current
+    setLoading(false)
+    try { await supabase.rpc('logout') } catch { /* Clear the local session even when offline. */ } finally {
+      if (request !== restoreRequest.current) return
       setUser(null)
+      setRestorationError(null)
       setSession('')
     }
   }
 
   return (
     <AuthContext.Provider
-      value={{ user, profile: user, loading, signIn, signUp, signOut, refreshProfile, setPhoneVerified }}
+      value={{ user, profile: user, loading, restorationError, retryRestore, signIn, signUp, signOut, refreshProfile, setPhoneVerified }}
     >
       {children}
     </AuthContext.Provider>

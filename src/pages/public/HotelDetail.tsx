@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase'
 import { videoFromRow } from '../../lib/socialVideo'
 import PropertyGallery from '../../components/PropertyGallery'
 import { amenityLabel } from '../../lib/amenities'
+import { baghdadToday, normalizeOccupancy } from '../../lib/booking'
 
 interface Hotel {
   id: string
@@ -119,14 +120,38 @@ export default function HotelDetail() {
   const [error, setError] = useState('')
 
 
-  const today = format(new Date(), 'yyyy-MM-dd')
+  const today = baghdadToday()
   const checkIn = searchParams.get('checkIn') || ''
   const checkOut = searchParams.get('checkOut') || ''
-  const guests = searchParams.get('guests') || '2'
+  const guests = String(normalizeOccupancy(searchParams.get('guests'), 1, 10).guests)
 
   useEffect(() => {
-    if (id) fetchHotel()
-  }, [id])
+    let active = true
+    async function loadHotel() {
+      if (!id) return
+      setLoading(true)
+      setError('')
+      try {
+        const [hotelRes, roomsRes] = await Promise.all([
+          supabase.from('hotels').select('id, name, location, city, country, description, address, images, video_url, video_poster_url, social_video_url, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
+          supabase.from('room_types').select('*').eq('hotel_id', id),
+        ])
+        if (!active) return
+        if (hotelRes.error || roomsRes.error) setError(t('common.errorOccurred'))
+        setHotel(hotelRes.data)
+        setRoomTypes(roomsRes.data || [])
+        setLoading(false)
+      } catch {
+        if (!active) return
+        setError(t('common.errorOccurred'))
+        setHotel(null)
+        setRoomTypes([])
+        setLoading(false)
+      }
+    }
+    loadHotel()
+    return () => { active = false }
+  }, [id, t])
 
   useEffect(() => {
     if (!id) return
@@ -138,21 +163,6 @@ export default function HotelDetail() {
       }
     }
   }, [id])
-
-  async function fetchHotel() {
-    setLoading(true)
-    setError('')
-    const [hotelRes, roomsRes] = await Promise.all([
-      supabase.from('hotels').select('id, name, location, city, country, description, address, images, video_url, video_poster_url, social_video_url, amenities, profit_margin_percentage, currency, latitude, longitude').eq('id', id).eq('status', 'active').maybeSingle(),
-      supabase.from('room_types').select('*').eq('hotel_id', id),
-    ])
-    if (hotelRes.error || roomsRes.error) {
-      setError(t('common.errorOccurred'))
-    }
-    setHotel(hotelRes.data)
-    setRoomTypes(roomsRes.data || [])
-    setLoading(false)
-  }
 
   function formatPrice(amount: number) {
     if (!hotel) return `$${amount.toFixed(0)}`

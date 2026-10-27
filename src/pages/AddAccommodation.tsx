@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
+import { useApiCapabilities } from '../lib/apiCapabilities'
 import { supabase } from '../lib/supabase'
 import ImageUploader from '../components/ImageUploader'
 import PropertyMediaEditor from '../components/PropertyMediaEditor'
-import { videoColumns } from '../lib/socialVideo'
+import { videoColumns, videoFromRow } from '../lib/socialVideo'
 import type { PropertyVideoValue } from '../lib/propertyVideo'
 import AmenityPicker from '../components/AmenityPicker'
 import {
@@ -25,12 +26,17 @@ export default function AddAccommodation() {
   const { t } = useTranslation()
   const { user, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const applicationId = searchParams.get('application')
+  const capabilities = useApiCapabilities()
   const formRef = useRef<HTMLFormElement>(null)
 
   const [step, setStep] = useState<Step>('basics')
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState('')
+  const [editingApplication, setEditingApplication] = useState<string | null>(null)
+  const [applicationLoading, setApplicationLoading] = useState(Boolean(applicationId))
 
   const [form, setForm] = useState({
     property_name: '', property_type: 'hotel', description: '',
@@ -54,13 +60,73 @@ export default function AddAccommodation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
+  useEffect(() => {
+    if (!applicationId) {
+      setEditingApplication(null)
+      setApplicationLoading(false)
+      return
+    }
+    if (authLoading || !user || !capabilities) return
+    if (!capabilities.applicationResubmit) {
+      setEditingApplication(null); setApplicationLoading(false); setError(t('common.errorOccurred')); return
+    }
+    let active = true
+    setApplicationLoading(true)
+    setEditingApplication(null)
+    setError('')
+    ;(async () => {
+      try {
+        const { data, error: loadError } = await supabase
+          .from('accommodation_applications')
+          .select('*')
+          .eq('id', applicationId)
+          .eq('applicant_id', user.id)
+          .eq('status', 'info_requested')
+          .maybeSingle()
+        if (!active) return
+        if (loadError) throw loadError
+        if (!data) {
+          setError(t('common.errorOccurred'))
+          return
+        }
+        setForm({
+          property_name: data.property_name || '',
+          property_type: data.property_type || 'hotel',
+          description: data.description || '',
+          city: data.city || '',
+          address: data.address || '',
+          location: data.location || '',
+          country: data.country || 'Iraq',
+          phone: data.phone || '',
+          contact_person: data.contact_person || '',
+          latitude: data.latitude == null ? '' : String(data.latitude),
+          longitude: data.longitude == null ? '' : String(data.longitude),
+        })
+        setImages(data.images || [])
+        setVideo(videoFromRow(data))
+        setAmenities(data.amenities || [])
+        setEditingApplication(data.id)
+      } catch {
+        if (active) setError(t('common.errorOccurred'))
+      } finally {
+        if (active) setApplicationLoading(false)
+      }
+    })()
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId, user?.id, authLoading, capabilities])
+
   const idx = steps.findIndex(s => s.id === step)
   function next() { if (idx < steps.length - 1) setStep(steps[idx + 1].id) }
   function prev() { if (idx > 0) setStep(steps[idx - 1].id) }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (submitting || videoBusy || !user) return
+    if (submitting || videoBusy || applicationLoading || !user) return
+    if (applicationId && !editingApplication) {
+      setError(t('common.errorOccurred'))
+      return
+    }
     if (!form.property_name || !form.city || !form.address) {
       setError(t('addProperty.errors.requiredFields'))
       setStep('basics')
@@ -73,8 +139,7 @@ export default function AddAccommodation() {
     }
     setError('')
     setSubmitting(true)
-
-    const { error: insertError } = await supabase.from('accommodation_applications').insert({
+    const payload = {
       applicant_id: user.id,
       applicant_name: user.name,
       applicant_phone: user.phone || null,
@@ -93,14 +158,21 @@ export default function AddAccommodation() {
       images: images.length ? images : video?.poster ? [video.poster] : [],
       ...videoColumns(video),
       status: 'pending',
-    })
-
-    setSubmitting(false)
-    if (insertError) {
-      setError(t('addProperty.errors.submitFailed'))
-      return
     }
-    setDone(true)
+
+    try {
+      const { data, error: submitError } = editingApplication
+        ? await supabase.from('accommodation_applications').update(payload)
+          .eq('id', editingApplication).eq('applicant_id', user.id).eq('status', 'info_requested')
+          .select('id').maybeSingle()
+        : await supabase.from('accommodation_applications').insert(payload).select('id').single()
+      if (submitError || !data) throw submitError || new Error('Application was not updated')
+      setDone(true)
+    } catch {
+      setError(t('addProperty.errors.submitFailed'))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const inputClass = 'w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500'
@@ -155,17 +227,17 @@ export default function AddAccommodation() {
         </div>
 
         <form ref={formRef} onSubmit={handleSubmit} className="p-6">
-          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+          {error && <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
           {step === 'basics' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
-                <label className="text-sm text-gray-600 font-medium">{t('addProperty.propertyName')} *</label>
-                <input required value={form.property_name} onChange={e => setForm({ ...form, property_name: e.target.value })} placeholder={t('addProperty.propertyNamePh')} className={inputClass} />
+                <label htmlFor="property-name" className="text-sm text-gray-600 font-medium">{t('addProperty.propertyName')} *</label>
+                <input id="property-name" required value={form.property_name} onChange={e => setForm({ ...form, property_name: e.target.value })} placeholder={t('addProperty.propertyNamePh')} className={inputClass} />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('addProperty.type')} *</label>
-                <select value={form.property_type} onChange={e => setForm({ ...form, property_type: e.target.value })} className={inputClass}>
+                <label htmlFor="property-type" className="text-sm text-gray-600 font-medium">{t('addProperty.type')} *</label>
+                <select id="property-type" value={form.property_type} onChange={e => setForm({ ...form, property_type: e.target.value })} className={inputClass}>
                   <option value="hotel">{t('propertyTypesSingular.hotel')}</option>
                   <option value="motel">{t('propertyTypesSingular.motel')}</option>
                   <option value="apartment">{t('propertyTypesSingular.apartment')}</option>
@@ -174,20 +246,20 @@ export default function AddAccommodation() {
                 </select>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('addProperty.city')} *</label>
-                <input required value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder={t('addProperty.cityPh')} className={inputClass} />
+                <label htmlFor="property-city" className="text-sm text-gray-600 font-medium">{t('addProperty.city')} *</label>
+                <input id="property-city" autoComplete="address-level2" required value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder={t('addProperty.cityPh')} className={inputClass} />
               </div>
               <div className="col-span-2">
-                <label className="text-sm text-gray-600 font-medium">{t('addProperty.address')} *</label>
-                <input required value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder={t('addProperty.addressPh')} className={inputClass} />
+                <label htmlFor="property-address" className="text-sm text-gray-600 font-medium">{t('addProperty.address')} *</label>
+                <input id="property-address" autoComplete="street-address" required value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder={t('addProperty.addressPh')} className={inputClass} />
               </div>
               <div className="col-span-2">
-                <label className="text-sm text-gray-600 font-medium">{t('addProperty.description')}</label>
-                <textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder={t('addProperty.descriptionPh')} className={`${inputClass} resize-none`} />
+                <label htmlFor="property-description" className="text-sm text-gray-600 font-medium">{t('addProperty.description')}</label>
+                <textarea id="property-description" rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder={t('addProperty.descriptionPh')} className={`${inputClass} resize-none`} />
               </div>
               <div className="col-span-2">
-                <label className="text-sm text-gray-600 font-medium">{t('addProperty.area')}</label>
-                <input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder={t('addProperty.areaPh')} className={inputClass} />
+                <label htmlFor="property-area" className="text-sm text-gray-600 font-medium">{t('addProperty.area')}</label>
+                <input id="property-area" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder={t('addProperty.areaPh')} className={inputClass} />
               </div>
             </div>
           )}
@@ -213,23 +285,23 @@ export default function AddAccommodation() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600 font-medium">{t('addProperty.contactPerson')}</label>
-                  <input value={form.contact_person} onChange={e => setForm({ ...form, contact_person: e.target.value })} className={inputClass} />
+                  <label htmlFor="property-contact-name" className="text-sm text-gray-600 font-medium">{t('addProperty.contactPerson')}</label>
+                  <input id="property-contact-name" autoComplete="name" value={form.contact_person} onChange={e => setForm({ ...form, contact_person: e.target.value })} className={inputClass} />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600 font-medium">{t('addProperty.contactPhone')}</label>
-                  <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964 750 123 4567" className={inputClass} />
+                  <label htmlFor="property-contact-phone" className="text-sm text-gray-600 font-medium">{t('addProperty.contactPhone')}</label>
+                  <input id="property-contact-phone" type="tel" autoComplete="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+964 750 123 4567" className={inputClass} />
                 </div>
               </div>
               <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
                 <div className="flex items-center gap-2 mb-3">
                   <MapPin className="w-4 h-4 text-primary-600" />
-                  <label className="text-sm text-gray-700 font-medium">{t('addProperty.mapLocation')}</label>
+                  <span className="text-sm text-gray-700 font-medium">{t('addProperty.mapLocation')}</span>
                   <span className="text-xs text-gray-400">{t('addProperty.optional')}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <input type="number" step="any" value={form.latitude} onChange={e => setForm({ ...form, latitude: e.target.value })} placeholder={t('addProperty.latitude')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
-                  <input type="number" step="any" value={form.longitude} onChange={e => setForm({ ...form, longitude: e.target.value })} placeholder={t('addProperty.longitude')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                  <input aria-label={t('addProperty.latitude')} type="number" step="any" value={form.latitude} onChange={e => setForm({ ...form, latitude: e.target.value })} placeholder={t('addProperty.latitude')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                  <input aria-label={t('addProperty.longitude')} type="number" step="any" value={form.longitude} onChange={e => setForm({ ...form, longitude: e.target.value })} placeholder={t('addProperty.longitude')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
                 </div>
               </div>
               <p className="text-xs text-gray-400">{t('addProperty.legalNote')}</p>
@@ -253,7 +325,7 @@ export default function AddAccommodation() {
             <button
               type="button"
               onClick={() => formRef.current?.requestSubmit()}
-              disabled={submitting || videoBusy}
+              disabled={submitting || videoBusy || applicationLoading || Boolean(applicationId && !editingApplication)}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

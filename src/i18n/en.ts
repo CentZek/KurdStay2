@@ -24,6 +24,15 @@ const en = {
     skipContent: 'Skip to content', editSearch: 'Edit search', stayDetails: 'Your stay', allProperties: 'All properties',
     selectProperty: 'Choose a property', bookingReference: 'Reference', chooseDates: 'Choose your dates',
     guestCapacity: "Choose a guest count within the capacity of the selected rooms.",
+    reload: 'Reload page', loadErrorTitle: 'This page could not be loaded',
+    loadErrorDescription: 'The page may still be offline or its download was interrupted. Try again, or reload the app.',
+  },
+  routes: {
+    home: 'Home', search: 'Search stays', hotel: 'Stay details', booking: 'Complete booking', confirmation: 'Booking confirmation',
+    login: 'Login', register: 'Create account', profile: 'My profile', addProperty: 'List your property', notFound: 'Page not found',
+    admin: 'Admin dashboard', adminHotels: 'Manage hotels', adminBookings: 'Manage bookings', adminOwners: 'Manage owners',
+    adminDestinations: 'Manage destinations', adminImport: 'Import property', adminChats: 'Live chats', adminApplications: 'Accommodation applications',
+    owner: 'Owner dashboard', ownerRooms: 'Room types', ownerAvailability: 'Availability', ownerBookings: 'Property bookings',
   },
   common: {
     appTitle: 'KurdStay - Hotels & Farms',
@@ -65,6 +74,8 @@ const en = {
     guest: 'Guest',
     guestCount_one: '{{count}} guest',
     guestCount_other: '{{count}} guests',
+    roomCount_one: '{{count}} room', roomCount_other: '{{count}} rooms',
+    nightCount_one: '{{count}} night', nightCount_other: '{{count}} nights',
     room: 'Room',
     from: 'From',
     status: 'Status',
@@ -781,7 +792,7 @@ const en = {
     iosStep1: 'Tap the Share button at the bottom of Safari',
     iosStep2: 'Scroll down and tap "Add to Home Screen"',
     iosStep3: 'Tap "Add" to confirm',
-    gotIt: 'Got it!',
+    gotIt: 'Got it!', dismiss: 'Dismiss install prompt', closeInstructions: 'Close install instructions',
   },
 }
 

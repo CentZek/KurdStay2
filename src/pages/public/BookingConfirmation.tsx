@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle, Clock, XCircle } from 'lucide-react'
@@ -26,21 +26,32 @@ export default function BookingConfirmation() {
   const [booking, setBooking] = useState<Booking | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const requestRef = useRef(0)
 
   useEffect(() => {
     if (bookingId) fetchBooking()
+    return () => { requestRef.current += 1 }
   }, [bookingId])
 
   async function fetchBooking() {
+    const requestId = ++requestRef.current
     setLoading(true)
-    const { data, error } = await supabase
-      .from('bookings')
-      .select('*, hotels(name, currency), room_types(name)')
-      .eq('id', bookingId)
-      .maybeSingle()
-    setError(Boolean(error))
-    setBooking(data)
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('*, hotels(name, currency), room_types(name)')
+        .eq('id', bookingId)
+        .maybeSingle()
+      if (requestId !== requestRef.current) return
+      setError(Boolean(error))
+      setBooking(data)
+      setLoading(false)
+    } catch {
+      if (requestId !== requestRef.current) return
+      setError(true)
+      setBooking(null)
+      setLoading(false)
+    }
   }
 
   if (loading) {

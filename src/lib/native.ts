@@ -16,16 +16,20 @@ export async function initNativeFeatures() {
   if (!isNative()) return
 
   if (isPluginAvailable('StatusBar')) {
-    const { StatusBar, Style } = await import('@capacitor/status-bar')
-    await StatusBar.setStyle({ style: Style.Light })
-    if (getPlatform() === 'android') {
-      await StatusBar.setBackgroundColor({ color: '#256de9' })
-    }
+    try {
+      const { StatusBar, Style } = await import('@capacitor/status-bar')
+      await StatusBar.setStyle({ style: Style.Light })
+      if (getPlatform() === 'android') {
+        await StatusBar.setBackgroundColor({ color: '#102b3d' })
+      }
+    } catch { /* Native appearance is optional on unsupported devices. */ }
   }
 
   if (isPluginAvailable('SplashScreen')) {
-    const { SplashScreen } = await import('@capacitor/splash-screen')
-    await SplashScreen.hide()
+    try {
+      const { SplashScreen } = await import('@capacitor/splash-screen')
+      await SplashScreen.hide()
+    } catch { /* The operating system will dismiss the splash screen. */ }
   }
 }
 
@@ -41,6 +45,6 @@ export async function openInBrowser(url: string) {
     const { Browser } = await import('@capacitor/browser')
     await Browser.open({ url })
   } else {
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }

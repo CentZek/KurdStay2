@@ -28,57 +28,22 @@ export default function AdminDashboard() {
   async function fetchStats() {
     setLoading(true)
     setError('')
-    const [hotelsRes, bookingsRes, pendingRes, confirmedRes, chatsRes, appsRes] = await Promise.all([
-      supabase.from('hotels').select('id, name, currency'),
-      supabase.from('bookings').select('hotel_id, margin_amount, status'),
-      supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('bookings').select('hotel_id, margin_amount').eq('status', 'confirmed'),
-      supabase.from('chat_sessions').select('id', { count: 'exact', head: true }).eq('status', 'open'),
-      supabase.from('accommodation_applications').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-    ])
-
-    if ([hotelsRes, bookingsRes, pendingRes, confirmedRes, chatsRes, appsRes].some(result => result.error)) {
+    const { data, error: fetchError } = await supabase.rpc('admin_dashboard_stats')
+    if (fetchError || !data) {
       setError(t('common.errorOccurred')); setLoading(false); return
     }
-    setLoading(false)
-    const hotels = hotelsRes.data || []
-    const allBookings = bookingsRes.data || []
-    const confirmed = confirmedRes.data || []
-
-    const totalCommission = confirmed.reduce((sum, b) => sum + Number(b.margin_amount), 0)
-
-    const commissionMap = new Map<string, HotelCommission>()
-    for (const hotel of hotels) {
-      commissionMap.set(hotel.id, {
-        hotel_id: hotel.id,
-        hotel_name: hotel.name,
-        currency: hotel.currency || 'USD',
-        confirmed_count: 0,
-        total_commission: 0,
-      })
-    }
-    for (const b of confirmed) {
-      const entry = commissionMap.get(b.hotel_id)
-      if (entry) {
-        entry.confirmed_count++
-        entry.total_commission += Number(b.margin_amount)
-      }
-    }
-
-    const commissionList = Array.from(commissionMap.values())
-      .filter(c => c.confirmed_count > 0)
-      .sort((a, b) => b.total_commission - a.total_commission)
-
-    setCommissionByHotel(commissionList)
+    const commission = (data.commission || []) as HotelCommission[]
+    setCommissionByHotel(commission.map(item => ({ ...item, total_commission: Number(item.total_commission) })))
     setStats({
-      hotels: hotels.length,
-      bookings: allBookings.length,
-      pending: pendingRes.count || 0,
-      confirmed: confirmed.length,
-      totalCommission,
-      openChats: chatsRes.count || 0,
-      pendingApplications: appsRes.count || 0,
+      hotels: Number(data.hotels) || 0,
+      bookings: Number(data.bookings) || 0,
+      pending: Number(data.pending) || 0,
+      confirmed: Number(data.confirmed) || 0,
+      totalCommission: 0,
+      openChats: Number(data.open_chats) || 0,
+      pendingApplications: Number(data.pending_applications) || 0,
     })
+    setLoading(false)
   }
 
   if (profile?.role !== 'admin') {

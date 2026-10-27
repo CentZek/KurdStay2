@@ -24,6 +24,15 @@ const ku = {
     skipContent: 'بڕۆ بۆ ناوەڕۆک', editSearch: 'دەستکاری گەڕان', stayDetails: 'مانەوەکەت', allProperties: 'هەموو موڵکەکان',
     selectProperty: 'موڵکێک هەڵبژێرە', bookingReference: 'ژمارەی حجز', chooseDates: 'بەروارەکانت هەڵبژێرە',
     guestCapacity: "ژمارەی میوان بەپێی گنجایشی ژوورە هەڵبژێردراوەکان هەڵبژێرە.",
+    reload: 'بارکردنەوەی پەڕە', loadErrorTitle: 'ئەم پەڕەیە بارنەکرا',
+    loadErrorDescription: 'لەوانەیە ئۆفلاین بیت یان بارکردنەکە پچڕابێت. دووبارە هەوڵ بدەوە یان ئەپەکە باربکەرەوە.',
+  },
+  routes: {
+    home: 'ماڵەوە', search: 'گەڕانی مانەوە', hotel: 'وردەکاری مانەوە', booking: 'تەواوکردنی حجز', confirmation: 'پشتڕاستکردنەوەی حجز',
+    login: 'چوونەژوورەوە', register: 'دروستکردنی هەژمار', profile: 'پرۆفایلەکەم', addProperty: 'زیادکردنی موڵک', notFound: 'پەڕە نەدۆزرایەوە',
+    admin: 'داشبۆردی ئەدمین', adminHotels: 'بەڕێوەبردنی هوتێل', adminBookings: 'بەڕێوەبردنی حجز', adminOwners: 'بەڕێوەبردنی خاوەنەکان',
+    adminDestinations: 'بەڕێوەبردنی شوێنەکان', adminImport: 'هاوردەکردنی موڵک', adminChats: 'چاتە ڕاستەوخۆکان', adminApplications: 'داواکاری شوێنی مانەوە',
+    owner: 'داشبۆردی خاوەن', ownerRooms: 'جۆرەکانی ژوور', ownerAvailability: 'بەردەستی', ownerBookings: 'حجزەکانی موڵک',
   },
   common: {
     appTitle: 'KurdStay - هوتێل و کێڵگە',
@@ -65,6 +74,8 @@ const ku = {
     guest: 'میوان',
     guestCount_one: '{{count}} میوان',
     guestCount_other: '{{count}} میوان',
+    roomCount_one: '{{count}} ژوور', roomCount_other: '{{count}} ژوور',
+    nightCount_one: '{{count}} شەو', nightCount_other: '{{count}} شەو',
     room: 'ژوور',
     from: 'لە',
     status: 'بارودۆخ',
@@ -781,7 +792,7 @@ const ku = {
     iosStep1: 'لەسەر دوگمەی Share لە خوارەوەی Safari کرتە بکە',
     iosStep2: 'بڕۆ خوارەوە و لەسەر "Add to Home Screen" کرتە بکە',
     iosStep3: 'لەسەر "Add" کرتە بکە بۆ پشتڕاستکردنەوە',
-    gotIt: 'تێگەیشتم!',
+    gotIt: 'تێگەیشتم!', dismiss: 'داخستنی پێشنیاری دامەزراندن', closeInstructions: 'داخستنی ڕێنمایی دامەزراندن',
   },
 }
 

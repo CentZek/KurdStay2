@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
@@ -22,109 +22,182 @@ interface AvailabilityRow {
   is_closed: boolean
 }
 
+const days = 14
+
 export default function OwnerAvailability() {
   const { hotelId } = useParams()
   const { t } = useTranslation()
   const { profile } = useAuth()
+  const roomRequest = useRef(0)
+  const availabilityRequest = useRef(0)
+  const viewRef = useRef('')
   const [currency, setCurrency] = useState('USD')
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [selectedRoom, setSelectedRoom] = useState<string>('')
+  const [selectedRoom, setSelectedRoom] = useState('')
   const [availability, setAvailability] = useState<AvailabilityRow[]>([])
+  const [loadedView, setLoadedView] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [saveError, setSaveError] = useState(false)
   const [fetching, setFetching] = useState(false)
-
   const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const days = 14
+  const currentView = selectedRoom && startDate ? `${selectedRoom}:${startDate}` : ''
+  viewRef.current = currentView
 
   useEffect(() => {
-    if (profile?.role === 'hotel_owner' || profile?.role === 'admin') fetchRoomTypes()
-  }, [hotelId, profile])
+    if (profile?.role !== 'hotel_owner' && profile?.role !== 'admin') return
+    const currentRequest = ++roomRequest.current
+    setLoading(true)
+    setRoomTypes([])
+    setSelectedRoom('')
+    setAvailability([])
+    setLoadedView('')
 
-  useEffect(() => {
-    if (selectedRoom) fetchAvailability()
-  }, [selectedRoom, startDate])
-
-  async function fetchRoomTypes() {
-    const { data: hotelData } = await supabase.from('hotels').select('currency').eq('id', hotelId).maybeSingle()
-    setCurrency(hotelData?.currency || 'USD')
-    const { data, error } = await supabase
-      .from('room_types')
-      .select('id, name, base_price')
-      .eq('hotel_id', hotelId)
-    if (error) { setSaveError(true); setFeedback(t('common.errorOccurred')) }
-    setRoomTypes(data || [])
-    if (data && data.length > 0) setSelectedRoom(data[0].id)
-    setLoading(false)
-  }
-
-  async function fetchAvailability() {
-    if (!startDate) return
-    setFetching(true)
-    const endDate = format(addDays(parseISO(startDate), days - 1), 'yyyy-MM-dd')
-    const { data, error } = await supabase
-      .from('room_availability')
-      .select('*')
-      .eq('room_type_id', selectedRoom)
-      .gte('date', startDate)
-      .lte('date', endDate)
-
-    setFetching(false)
-    if (error) { setSaveError(true); setFeedback(t('common.errorOccurred')); setAvailability([]); return }
-    const existingMap = new Map((data || []).map(r => [r.date, r]))
-
-    const rows: AvailabilityRow[] = []
-    for (let i = 0; i < days; i++) {
-      const date = format(addDays(parseISO(startDate), i), 'yyyy-MM-dd')
-      const existing = existingMap.get(date)
-      rows.push(existing || {
-        room_type_id: selectedRoom,
-        date,
-        available_rooms: 0,
-        base_price_override: null,
-        is_closed: false,
-      })
+    async function fetchRoomTypes() {
+      try {
+        const [hotelRes, roomsRes] = await Promise.all([
+          supabase.from('hotels').select('currency').eq('id', hotelId).maybeSingle(),
+          supabase.from('room_types').select('id, name, base_price').eq('hotel_id', hotelId),
+        ])
+        if (currentRequest !== roomRequest.current) return
+        if (hotelRes.error || roomsRes.error) {
+          setSaveError(true)
+          setFeedback(t('common.errorOccurred'))
+          return
+        }
+        setCurrency(hotelRes.data?.currency || 'USD')
+        setRoomTypes(roomsRes.data || [])
+        if (roomsRes.data && roomsRes.data.length > 0) setSelectedRoom(roomsRes.data[0].id)
+      } catch {
+        if (currentRequest !== roomRequest.current) return
+        setSaveError(true)
+        setFeedback(t('common.errorOccurred'))
+      } finally {
+        if (currentRequest === roomRequest.current) setLoading(false)
+      }
     }
-    setAvailability(rows)
+
+    fetchRoomTypes()
+    return () => { roomRequest.current += 1 }
+  }, [hotelId, profile?.role, t])
+
+  useEffect(() => {
+    const currentRequest = ++availabilityRequest.current
+    setLoadedView('')
+    setAvailability([])
+    if (!currentView) {
+      setFetching(false)
+      return
+    }
+    setFetching(true)
+    const roomId = selectedRoom
+    const viewStart = startDate
+
+    async function fetchAvailability() {
+      try {
+        const endDate = format(addDays(parseISO(viewStart), days - 1), 'yyyy-MM-dd')
+        const { data, error } = await supabase
+          .from('room_availability')
+          .select('*')
+          .eq('room_type_id', roomId)
+          .gte('date', viewStart)
+          .lte('date', endDate)
+        if (currentRequest !== availabilityRequest.current || viewRef.current !== currentView) return
+        if (error) {
+          setSaveError(true)
+          setFeedback(t('common.errorOccurred'))
+          return
+        }
+        const existingMap = new Map((data || []).map(row => [row.date, row]))
+        const rows: AvailabilityRow[] = []
+        for (let i = 0; i < days; i++) {
+          const date = format(addDays(parseISO(viewStart), i), 'yyyy-MM-dd')
+          rows.push(existingMap.get(date) || {
+            room_type_id: roomId,
+            date,
+            available_rooms: 0,
+            base_price_override: null,
+            is_closed: false,
+          })
+        }
+        setAvailability(rows)
+        setLoadedView(currentView)
+      } catch {
+        if (currentRequest !== availabilityRequest.current || viewRef.current !== currentView) return
+        setSaveError(true)
+        setFeedback(t('common.errorOccurred'))
+      } finally {
+        if (currentRequest === availabilityRequest.current) setFetching(false)
+      }
+    }
+
+    fetchAvailability()
+    return () => { availabilityRequest.current += 1 }
+  }, [currentView, selectedRoom, startDate, t])
+
+  function updateRow(index: number, field: keyof AvailabilityRow, value: number | boolean | null) {
+    setFeedback('')
+    setSaveError(false)
+    setAvailability(prev => prev.map((row, i) => i === index ? { ...row, [field]: value } : row))
   }
 
-  function updateRow(index: number, field: string, value: any) {
+  function changeView(room: string, date: string) {
+    viewRef.current = room && date ? `${room}:${date}` : ''
+    availabilityRequest.current += 1
+    setLoadedView('')
+    setAvailability([])
+    setFetching(Boolean(room && date))
     setFeedback('')
-    setAvailability(prev => prev.map((row, i) =>
-      i === index ? { ...row, [field]: value } : row
-    ))
+    setSaveError(false)
   }
 
   async function handleSave() {
-    if (saving || fetching || !availability.length) return
+    const saveView = currentView
+    const requestAtStart = availabilityRequest.current
+    if (saving || fetching || !saveView || loadedView !== saveView || !availability.length) return
+    if (availability.some(row => row.room_type_id !== selectedRoom || row.date < startDate || row.date > format(addDays(parseISO(startDate), days - 1), 'yyyy-MM-dd'))) return
+
     setSaving(true)
     setFeedback('')
-    const { error } = await supabase.from('room_availability').upsert(
-      availability.map(row => ({
-        room_type_id: row.room_type_id, date: row.date,
-        available_rooms: Math.max(0, Math.floor(row.available_rooms)),
-        base_price_override: row.base_price_override === null ? null : Math.max(0, row.base_price_override),
-        is_closed: row.is_closed,
-      })), { onConflict: 'room_type_id,date' })
-    setSaving(false)
-    setSaveError(Boolean(error))
-    setFeedback(t(error ? 'common.errorOccurred' : 'ux.saved'))
+    setSaveError(false)
+    try {
+      const { data, error } = await supabase.from('room_availability').upsert(
+        availability.map(row => ({
+          room_type_id: row.room_type_id,
+          date: row.date,
+          available_rooms: Math.max(0, Math.floor(row.available_rooms)),
+          base_price_override: row.base_price_override === null ? null : Math.max(0, row.base_price_override),
+          is_closed: row.is_closed,
+        })),
+        { onConflict: 'room_type_id,date' },
+      ).select('room_type_id,date')
+      if (error || data?.length !== availability.length) throw error || new Error('Availability was not saved')
+      if (viewRef.current !== saveView || availabilityRequest.current !== requestAtStart) return
+      setFeedback(t('ux.saved'))
+    } catch {
+      if (viewRef.current !== saveView || availabilityRequest.current !== requestAtStart) return
+      setSaveError(true)
+      setFeedback(t('common.errorOccurred'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (profile?.role !== 'hotel_owner' && profile?.role !== 'admin') {
     return <div className="min-h-screen flex items-center justify-center"><p className="text-gray-500">{t('owner.accessDenied')}</p></div>
   }
 
+  const saveDisabled = saving || fetching || !availability.length || loadedView !== currentView
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="availability-heading flex items-center gap-3 mb-8">
-        <Link to="/owner" className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+        <Link to="/owner" aria-label={t('common.back')} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </Link>
         <h1 className="text-2xl font-bold text-gray-900 flex-1">{t('owner.availability')}</h1>
-        <button onClick={handleSave} disabled={saving || fetching || !availability.length}
+        <button onClick={handleSave} disabled={saveDisabled}
           className="bg-primary-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-primary-700 transition-colors flex items-center gap-2 disabled:opacity-50">
           <Save className="w-4 h-4" />
           {saving ? t('ux.saving') : t('common.save')}
@@ -142,11 +215,11 @@ export default function OwnerAvailability() {
       ) : (
         <>
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <select aria-label={t('owner.roomTypes')} disabled={saving || fetching} value={selectedRoom} onChange={e => { setFeedback(''); setSelectedRoom(e.target.value) }}
+            <select aria-label={t('owner.roomTypes')} disabled={saving || fetching} value={selectedRoom} onChange={e => { changeView(e.target.value, startDate); setSelectedRoom(e.target.value) }}
               className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-              {roomTypes.map(r => <option key={r.id} value={r.id}>{r.name} ({Number(r.base_price).toLocaleString()} {currency}/{t('common.night')})</option>)}
+              {roomTypes.map(room => <option key={room.id} value={room.id}>{room.name} ({Number(room.base_price).toLocaleString()} {currency}/{t('common.night')})</option>)}
             </select>
-            <input type="date" aria-label={t('common.date')} disabled={saving || fetching} value={startDate} onChange={e => { if (e.target.value) { setFeedback(''); setStartDate(e.target.value) } }}
+            <input type="date" aria-label={t('common.date')} disabled={saving || fetching} value={startDate} onChange={e => { if (e.target.value) { changeView(selectedRoom, e.target.value); setStartDate(e.target.value) } }}
               className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
 

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { LANGUAGES, changeLanguage } from '../i18n'
 import { normalizeDigits } from '../lib/digits'
 import { functionHeaders } from '../lib/session'
+import { callPhoneVerification } from '../lib/verification'
 import { Phone, ShieldCheck, MessageCircle, ArrowRight, Loader2, ChevronDown } from 'lucide-react'
 
 const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/phone-verification`
@@ -42,22 +43,8 @@ function buildPhone(dial: string, national: string): string {
   return `${dial}${digits}`
 }
 
-async function callVerification(action: 'send' | 'verify', payload: Record<string, unknown>) {
-  const res = await fetch(FUNCTIONS_URL, {
-    method: 'POST',
-    headers: {
-      ...functionHeaders(),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ action, ...payload }),
-  })
-  let body: any = {}
-  try {
-    body = await res.json()
-  } catch {
-    body = {}
-  }
-  return { ok: res.ok, status: res.status, body }
+function callVerification(action: 'send' | 'verify', payload: Record<string, unknown>) {
+  return callPhoneVerification(action, payload, { url: FUNCTIONS_URL, headers: functionHeaders() })
 }
 
 export default function RegisterPage() {
@@ -86,6 +73,7 @@ export default function RegisterPage() {
 
   async function handleDetails(e: React.FormEvent) {
     e.preventDefault()
+    if (loading) return
     setError('')
     const nationalDigits = normalizeDigits(nationalPhone).replace(/\D/g, '').replace(/^0+/, '')
     if (nationalDigits.length < 7) {
@@ -93,67 +81,76 @@ export default function RegisterPage() {
       return
     }
     setLoading(true)
+    try {
+      const phone = buildPhone(selectedCountry.dial, nationalPhone)
+      const { error: signUpError, user } = await signUp({ username, password, name, phone, email: email || undefined, language })
+      if (signUpError || !user) {
+        setError(signUpError?.message || t('register.registrationFailed'))
+        return
+      }
 
-    const phone = buildPhone(selectedCountry.dial, nationalPhone)
-    const { error: signUpError, user } = await signUp({ username, password, name, phone, email: email || undefined, language })
-
-    if (signUpError || !user) {
+      setProfileId(user.id)
+      setFullPhone(phone)
+      const { status, body, error: requestError } = await callVerification('send', { profile_id: user.id, phone })
+      setStep('verify')
+      if (body?.code === 'not_configured' || status === 503) {
+        setNotConfigured(true)
+        return
+      }
+      if (!body?.success) {
+        setError(body?.error || requestError || t('register.sendCodeFailed'))
+        return
+      }
+      setInfo(t('register.codeSent'))
+    } catch {
+      setError(t('register.registrationFailed'))
+    } finally {
       setLoading(false)
-      setError(signUpError?.message || t('register.registrationFailed'))
-      return
     }
-
-    setProfileId(user.id)
-    setFullPhone(phone)
-
-    const { status, body } = await callVerification('send', { profile_id: user.id, phone })
-    setLoading(false)
-
-    if (body?.code === 'not_configured' || status === 503) {
-      setNotConfigured(true)
-      setStep('verify')
-      return
-    }
-    if (!body?.success) {
-      // Account exists; let them retry sending on the next screen.
-      setError(body?.error || t('register.sendCodeFailed'))
-      setStep('verify')
-      return
-    }
-    setInfo(t('register.codeSent'))
-    setStep('verify')
   }
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault()
+    if (loading) return
     setError('')
     setInfo('')
     setLoading(true)
-    const { body } = await callVerification('verify', { profile_id: profileId, code })
-    setLoading(false)
-    if (!body?.success) {
-      setError(body?.error || t('register.verificationFailed'))
-      return
+    try {
+      const { body, error: requestError } = await callVerification('verify', { profile_id: profileId, code })
+      if (!body?.success) {
+        setError(body?.error || requestError || t('register.verificationFailed'))
+        return
+      }
+      setPhoneVerified()
+      navigate('/profile')
+    } catch {
+      setError(t('register.verificationFailed'))
+    } finally {
+      setLoading(false)
     }
-    setPhoneVerified()
-    navigate('/profile')
   }
 
   async function handleResend() {
+    if (loading) return
     setError('')
     setInfo('')
     setLoading(true)
-    const { status, body } = await callVerification('send', { profile_id: profileId, phone: fullPhone })
-    setLoading(false)
-    if (body?.code === 'not_configured' || status === 503) {
-      setNotConfigured(true)
-      return
+    try {
+      const { status, body, error: requestError } = await callVerification('send', { profile_id: profileId, phone: fullPhone })
+      if (body?.code === 'not_configured' || status === 503) {
+        setNotConfigured(true)
+        return
+      }
+      if (!body?.success) {
+        setError(body?.error || requestError || t('register.resendFailed'))
+        return
+      }
+      setInfo(t('register.codeResent'))
+    } catch {
+      setError(t('register.resendFailed'))
+    } finally {
+      setLoading(false)
     }
-    if (!body?.success) {
-      setError(body?.error || t('register.resendFailed'))
-      return
-    }
-    setInfo(t('register.codeResent'))
   }
 
   return (
@@ -173,18 +170,19 @@ export default function RegisterPage() {
         {step === 'details' ? (
           <form onSubmit={handleDetails} className="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
+              <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
             )}
 
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.language')}</label>
-                <div className="mt-1 grid grid-cols-2 gap-2">
+                <span className="text-sm text-gray-600 font-medium">{t('common.language')}</span>
+                <div className="mt-1 grid grid-cols-2 gap-2" role="group" aria-label={t('common.language')}>
                   {LANGUAGES.map(lang => (
                     <button
                       key={lang.code}
                       type="button"
-                      onClick={() => { setLanguage(lang.code); changeLanguage(lang.code) }}
+                      aria-pressed={lang.code === language}
+                      onClick={() => { setLanguage(lang.code); void changeLanguage(lang.code) }}
                       className={`px-3 py-2.5 border rounded-xl text-sm font-medium transition-colors ${
                         lang.code === language
                           ? 'border-primary-500 bg-primary-50 text-primary-700'
@@ -197,9 +195,11 @@ export default function RegisterPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('register.fullName')}</label>
+                <label htmlFor="register-name" className="text-sm text-gray-600 font-medium">{t('register.fullName')}</label>
                 <input
+                  id="register-name"
                   type="text"
+                  autoComplete="name"
                   required
                   value={name}
                   onChange={e => setName(e.target.value)}
@@ -208,9 +208,11 @@ export default function RegisterPage() {
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.username')}</label>
+                <label htmlFor="register-username" className="text-sm text-gray-600 font-medium">{t('common.username')}</label>
                 <input
+                  id="register-username"
                   type="text"
+                  autoComplete="username"
                   required
                   value={username}
                   onChange={e => setUsername(e.target.value)}
@@ -219,9 +221,11 @@ export default function RegisterPage() {
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.password')}</label>
+                <label htmlFor="register-password" className="text-sm text-gray-600 font-medium">{t('common.password')}</label>
                 <input
+                  id="register-password"
                   type="password"
+                  autoComplete="new-password"
                   required
                   minLength={6}
                   value={password}
@@ -231,10 +235,13 @@ export default function RegisterPage() {
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('register.phoneLabel')}</label>
+                <label htmlFor="register-phone" className="text-sm text-gray-600 font-medium">{t('register.phoneLabel')}</label>
                 <div className="mt-1 flex items-stretch relative">
                   <button
                     type="button"
+                    aria-expanded={countryOpen}
+                    aria-controls="register-country-options"
+                    aria-label={t('register.phoneLabel')}
                     onClick={() => setCountryOpen(prev => !prev)}
                     className="inline-flex items-center gap-1 px-3 bg-gray-100 border border-e-0 border-gray-200 rounded-s-xl text-sm text-gray-700 font-medium hover:bg-gray-200 transition-colors whitespace-nowrap"
                   >
@@ -243,11 +250,12 @@ export default function RegisterPage() {
                     <ChevronDown className="w-3 h-3 text-gray-400" />
                   </button>
                   {countryOpen && (
-                    <div className="absolute top-full start-0 mt-1 w-64 max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+                    <div id="register-country-options" className="absolute top-full start-0 mt-1 w-64 max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-50">
                       {COUNTRY_CODES.map(c => (
                         <button
                           key={c.code}
                           type="button"
+                          aria-pressed={c.code === selectedCountry.code}
                           onClick={() => { setSelectedCountry(c); setCountryOpen(false) }}
                           className={`w-full flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-gray-50 transition-colors ${
                             c.code === selectedCountry.code ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
@@ -261,7 +269,9 @@ export default function RegisterPage() {
                     </div>
                   )}
                   <input
+                    id="register-phone"
                     type="tel"
+                    autoComplete="tel-national"
                     required
                     value={nationalPhone}
                     onChange={e => setNationalPhone(e.target.value)}
@@ -272,9 +282,11 @@ export default function RegisterPage() {
                 <p className="mt-1 text-xs text-gray-400">{t('register.phoneHelp')}</p>
               </div>
               <div>
-                <label className="text-sm text-gray-600 font-medium">{t('common.email')} <span className="text-gray-400 font-normal">{t('register.optional')}</span></label>
+                <label htmlFor="register-email" className="text-sm text-gray-600 font-medium">{t('common.email')} <span className="text-gray-400 font-normal">{t('register.optional')}</span></label>
                 <input
+                  id="register-email"
                   type="email"
+                  autoComplete="email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="you@example.com"
@@ -300,7 +312,7 @@ export default function RegisterPage() {
         ) : (
           <form onSubmit={handleVerify} className="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
+              <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>
             )}
             {info && (
               <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">{info}</div>
@@ -329,8 +341,9 @@ export default function RegisterPage() {
                     <ShieldCheck className="w-6 h-6 text-primary-600" />
                   </div>
                 </div>
-                <label className="text-sm text-gray-600 font-medium">{t('register.codeLabel')}</label>
+                <label htmlFor="register-code" className="text-sm text-gray-600 font-medium">{t('register.codeLabel')}</label>
                 <input
+                  id="register-code"
                   type="text"
                   inputMode="numeric"
                   autoComplete="one-time-code"

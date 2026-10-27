@@ -78,7 +78,7 @@ export default defineConfig({
             urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/object\/public\/hotel-images\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'supabase-images',
+              cacheName: 'public-hotel-images-v2',
               expiration: {
                 maxEntries: 200,
                 maxAgeSeconds: 60 * 60 * 24 * 7,

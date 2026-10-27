@@ -24,6 +24,15 @@ const kmr = {
     skipContent: 'بچۆ بۆ ناڤەڕوکی', editSearch: 'لێگەریانێ بگوهۆرە', stayDetails: 'مانا تە', allProperties: 'هەمی موڵک',
     selectProperty: 'موڵکەکێ هەلبژێرە', bookingReference: 'ژمارا حجزی', chooseDates: 'مێژووێن خۆ هەلبژێرە',
     guestCapacity: "ژمارا میوانان ل دویڤ گنجایشا ژوورێن هەلبژارتی هەلبژێرە.",
+    reload: 'لاپەڕێ دوبارە بار بکە', loadErrorTitle: 'ڤی لاپەڕی نەهاتە بارکرن',
+    loadErrorDescription: 'رەنگە تو ئۆفلاین بی یان بارکرن هاتییە پچڕاندن. دوبارە هەوڵ بدە یان ئەپی دوبارە بار بکە.',
+  },
+  routes: {
+    home: 'سەرەتا', search: 'لێگەریانا مانەوێ', hotel: 'وردیا مانەوێ', booking: 'تەمامکرنا حجزی', confirmation: 'پشتڕاستکرنا حجزی',
+    login: 'چوونا ژوور', register: 'دروستکرنا هەژماری', profile: 'پرۆفایلێ من', addProperty: 'زێدەکرنا موڵکی', notFound: 'لاپەڕە نەهاتە دۆزین',
+    admin: 'داشبۆردا بەڕێڤەبەری', adminHotels: 'رێکخستنا هوتێلان', adminBookings: 'رێکخستنا حجزان', adminOwners: 'رێکخستنا خاوەنان',
+    adminDestinations: 'رێکخستنا جهان', adminImport: 'ئینپۆرتکرنا موڵکی', adminChats: 'چاتێن ڕاستەوخۆ', adminApplications: 'داخوازێن شوێنی مانەوێ',
+    owner: 'داشبۆردا خاوەنی', ownerRooms: 'جۆرێن ژووران', ownerAvailability: 'بەردەستی', ownerBookings: 'حجزێن موڵکی',
   },
   common: {
     appTitle: 'KurdStay - هوتێل و مزراعە',
@@ -65,6 +74,8 @@ const kmr = {
     guest: 'میوان',
     guestCount_one: '{{count}} میوان',
     guestCount_other: '{{count}} میوان',
+    roomCount_one: '{{count}} ژوور', roomCount_other: '{{count}} ژوور',
+    nightCount_one: '{{count}} شەڤ', nightCount_other: '{{count}} شەڤ',
     room: 'ژوور',
     from: 'ژ',
     status: 'رەوش',
@@ -781,7 +792,7 @@ const kmr = {
     iosStep1: 'کرتە ل دوگمەیا Share ل خوارێ Safari بکە',
     iosStep2: 'بەرەڤ خوارێ بچۆ و کرتە ل "Add to Home Screen" بکە',
     iosStep3: 'کرتە ل "Add" بکە بۆ پشتڕاستکرنێ',
-    gotIt: 'باشە!',
+    gotIt: 'باشە!', dismiss: 'پێشنیارا دامەزراندنێ بگرە', closeInstructions: 'ڕێنماییێن دامەزراندنێ بگرە',
   },
 }
 

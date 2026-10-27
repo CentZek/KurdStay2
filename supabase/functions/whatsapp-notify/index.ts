@@ -27,7 +27,7 @@ async function sendTemplate(
   to: string,
   contentSid: string,
   variables: Record<string, string>,
-): Promise<{ sent: boolean; error?: string; twilioStatus?: number }> {
+): Promise<{ sent: boolean; error?: string; twilioStatus?: number; retryable: boolean }> {
   const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
   const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
   const fromNumber = Deno.env.get("TWILIO_WHATSAPP_FROM");
@@ -38,11 +38,11 @@ async function sendTemplate(
       !authToken && "TWILIO_AUTH_TOKEN",
       !fromNumber && "TWILIO_WHATSAPP_FROM",
     ].filter(Boolean);
-    return { sent: false, error: `Missing env vars: ${missing.join(", ")}` };
+    return { sent: false, error: `Missing env vars: ${missing.join(", ")}`, retryable: false };
   }
 
   if (!contentSid) {
-    return { sent: false, error: "No ContentSid provided" };
+    return { sent: false, error: "No ContentSid provided", retryable: false };
   }
 
   const toFmt = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
@@ -66,20 +66,24 @@ async function sendTemplate(
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: params.toString(),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`Twilio error (${response.status}):`, errorBody);
-      return { sent: false, error: errorBody, twilioStatus: response.status };
+      return {
+        sent: false, error: errorBody, twilioStatus: response.status,
+        retryable: response.status === 429 || response.status >= 500,
+      };
     }
 
     const result = await response.json();
     console.log(`WhatsApp template sent to ${toFmt}, SID: ${result.sid}`);
-    return { sent: true };
+    return { sent: true, retryable: false };
   } catch (err) {
     console.error("Failed to send WhatsApp:", err);
-    return { sent: false, error: (err as Error).message };
+    return { sent: false, error: (err as Error).message, retryable: true };
   }
 }
 
@@ -148,11 +152,12 @@ function formatPrice(amount: number, currency: string): string {
 
 async function handleBookingCreated(bookingId: string) {
   const booking = await getBookingDetails(bookingId);
-  if (!booking) return { success: false, error: "Booking not found" };
+  if (!booking) return { success: false, error: "Booking not found", retryable: false, results: [] };
 
   const hotel = (booking as any).hotels;
   const roomType = (booking as any).room_types;
-  const results: { recipient: string; sent: boolean; error?: string; twilioStatus?: number }[] = [];
+  const managerPhones = await getHotelManagerPhones(booking.hotel_id);
+  const results: { recipient: string; sent: boolean; error?: string; twilioStatus?: number; retryable: boolean }[] = [];
 
   const tplPending = Deno.env.get("TWILIO_TPL_BOOKING_PENDING") || "HXfc04cd14ac10e8f656b0d6d2fffa888a";
   if (booking.customer_phone) {
@@ -165,13 +170,12 @@ async function handleBookingCreated(bookingId: string) {
     });
     results.push({ recipient: `customer(${normalized})`, ...res });
   } else {
-    results.push({ recipient: "customer", sent: false, error: "No customer phone" });
+    results.push({ recipient: "customer", sent: false, error: "No customer phone", retryable: false });
   }
 
   const tplManager = Deno.env.get("TWILIO_TPL_NEW_BOOKING_MANAGER") || "HX118d94bd96372a619d241a3af835a796";
-  const managerPhones = await getHotelManagerPhones(booking.hotel_id);
   if (managerPhones.length === 0) {
-    results.push({ recipient: "manager", sent: false, error: "No manager phones found" });
+    results.push({ recipient: "manager", sent: false, error: "No manager phones found", retryable: false });
   }
   for (const phone of managerPhones) {
     const normalized = normalizePhone(phone);
@@ -184,12 +188,16 @@ async function handleBookingCreated(bookingId: string) {
     results.push({ recipient: `manager(${normalized})`, ...res });
   }
 
-  return { success: true, booking_id: bookingId, results };
+  return {
+    success: results.every(result => result.sent), booking_id: bookingId, results,
+    retryable: results.every(result => !result.sent) && results.some(result => result.retryable),
+    error: results.filter(result => !result.sent).map(result => `${result.recipient}: ${result.error}`).join("; ") || undefined,
+  };
 }
 
 async function handleBookingConfirmed(bookingId: string) {
   const booking = await getBookingDetails(bookingId);
-  if (!booking) return { success: false, error: "Booking not found" };
+  if (!booking) return { success: false, error: "Booking not found", retryable: false, results: [] };
 
   const hotel = (booking as any).hotels;
   const roomType = (booking as any).room_types;
@@ -197,7 +205,7 @@ async function handleBookingConfirmed(bookingId: string) {
 
   const tplConfirmed = Deno.env.get("TWILIO_TPL_BOOKING_CONFIRMED") || "HX41493c47f6d586964b7ca4ecc44f9299";
   if (!booking.customer_phone) {
-    return { success: false, error: "No customer phone number" };
+    return { success: false, error: "No customer phone number", retryable: false, results: [] };
   }
 
   const normalized = normalizePhone(booking.customer_phone);
@@ -213,7 +221,10 @@ async function handleBookingConfirmed(bookingId: string) {
     "9": price,
   });
 
-  return { success: true, booking_id: bookingId, results: [{ recipient: `customer(${normalized})`, ...res }] };
+  return {
+    success: res.sent, booking_id: bookingId, retryable: res.retryable,
+    error: res.error, results: [{ recipient: `customer(${normalized})`, ...res }],
+  };
 }
 
 // ── Test handler ───────────────────────────────────────────────────
@@ -275,24 +286,51 @@ Deno.serve(async (req: Request) => {
     }
 
     if (!["booking_created", "booking_confirmed"].includes(payload.type)) return jsonResp({ error: "Unknown notification type" }, 400);
-    const { data: claimed, error: claimError } = await supabase.rpc("claim_booking_notification", {
+    const { data: claimed, error: claimError } = await supabase.rpc("claim_booking_notification_v2", {
       p_booking: payload.booking_id, p_kind: payload.type,
     });
     if (claimError) return jsonResp({ error: "Notification unavailable" }, 500);
-    if (!claimed) return jsonResp({ success: true, already_processed: true });
-    let result;
-    switch (payload.type) {
-      case "booking_created":
-        result = await handleBookingCreated(payload.booking_id);
-        break;
-      case "booking_confirmed":
-        result = await handleBookingConfirmed(payload.booking_id);
-        break;
-      default:
-        return jsonResp({ error: `Unknown type: ${payload.type}` }, 400);
+    if (!claimed) {
+      const { data: state } = await supabase.rpc("booking_notification_status_v2", {
+        p_booking: payload.booking_id, p_kind: payload.type,
+      });
+      if (state?.status === "sent") return jsonResp({ success: true, already_processed: true });
+      return jsonResp({
+        success: false, error: state?.status === "sending" ? "Notification already in progress" : "Notification is not ready for retry",
+        notification: state ? { status: state.status, next_retry_at: state.next_retry_at } : null,
+      }, 409);
     }
 
-    return jsonResp({ success: result.success, booking_id: payload.booking_id });
+    let result;
+    try {
+      switch (payload.type) {
+        case "booking_created":
+          result = await handleBookingCreated(payload.booking_id);
+          break;
+        case "booking_confirmed":
+          result = await handleBookingConfirmed(payload.booking_id);
+          break;
+        default:
+          return jsonResp({ error: `Unknown type: ${payload.type}` }, 400);
+      }
+    } catch (err) {
+      await supabase.rpc("complete_booking_notification_v2", {
+        p_booking: payload.booking_id, p_kind: payload.type, p_success: false,
+        p_error: (err as Error).message, p_retryable: false,
+      });
+      throw err;
+    }
+
+    const { data: completed, error: completionError } = await supabase.rpc("complete_booking_notification_v2", {
+      p_booking: payload.booking_id, p_kind: payload.type, p_success: result.success,
+      p_error: result.error || null, p_retryable: result.retryable,
+    });
+    if (completionError || !completed) return jsonResp({ success: false, error: "Could not save notification result" }, 500);
+    return jsonResp({
+      success: result.success, booking_id: payload.booking_id,
+      results: result.results.map(({ sent, retryable }) => ({ sent, retryable })),
+      error: result.success ? undefined : "Notification could not be sent", retryable: result.retryable,
+    });
   } catch (err) {
     console.error("Notification error:", err);
     return jsonResp({ error: (err as Error).message }, 500);

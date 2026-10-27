@@ -19,7 +19,7 @@ async function setup(page:Page,options:{lang?:string;fail?:boolean;count?:number
     if(path.endsWith('/chat_sessions') && req.method()==='POST')data={id:'30000000-0000-0000-0000-000000000001'}
     if(path.endsWith('/chat_messages')) {
       if(req.method()==='POST'){state.saved.push(req.postDataJSON());data=null}
-      else data=state.agent?[{id:'40000000-0000-0000-0000-000000000001',content:'A team member is here to help.'}]:[]
+      else data=state.agent?[{id:'40000000-0000-0000-0000-000000000001',content:'A team member is here to help.',created_at:'2030-01-01T00:00:00Z'}]:[]
     }
     if(path.endsWith('/request_chat_agent')){state.handoffs++;data=null}
     if(path.endsWith('/find_chat_stays')){state.searches.push(req.postDataJSON());data=stays.slice(0,options.count??3)}
@@ -106,6 +106,8 @@ test('human requests stay queued until a staff reply; queued messages do not inv
   await expect(chat.getByRole('textbox')).toBeEnabled()
   expect(state.turns).toHaveLength(0)
   state.agent=true
+  await page.bringToFront()
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
   await expect(chat.locator('.chat-turn-agent').filter({hasText:'A team member is here to help.'})).toBeVisible({timeout:7000})
   await expect(chat.getByText(en.chatbot.connectedToAgent,{exact:true})).toBeVisible()
 })

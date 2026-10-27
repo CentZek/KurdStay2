@@ -56,7 +56,7 @@ export default function AdminImportHotel() {
   const [formStep, setFormStep] = useState<FormStep>('basics')
   const [submitting, setSubmitting] = useState(false)
   const [imageBusy, setImageBusy] = useState(false)
-  const importIds = useRef({ hotel: crypto.randomUUID(), rooms: [] as string[], owner: '' })
+  const importIds = useRef({ request: crypto.randomUUID(), hotel: crypto.randomUUID(), rooms: [] as string[], owner: '' })
   const [owners, setOwners] = useState<{ id: string; name: string; email: string }[]>([])
   const [createOwnerAccount, setCreateOwnerAccount] = useState(true)
   const [ownerUsername, setOwnerUsername] = useState('')
@@ -151,6 +151,7 @@ export default function AdminImportHotel() {
     }
     setError('')
     setSuccessMsg('')
+    importIds.current.request = crypto.randomUUID()
     importIds.current.rooms = []
     setFormRoomTypes(parsed)
     setFormStep('rooms')
@@ -171,7 +172,7 @@ export default function AdminImportHotel() {
   }
 
   function populateForm(data: ExtractedData) {
-    importIds.current = { hotel: crypto.randomUUID(), rooms: [], owner: '' }
+    importIds.current = { request: crypto.randomUUID(), hotel: crypto.randomUUID(), rooms: [], owner: '' }
     setCreatedCredentials(null)
     setForm({
       name: data.name || '',
@@ -238,7 +239,7 @@ export default function AdminImportHotel() {
           (form.longitude && (!Number.isFinite(Number(form.longitude)) || Math.abs(Number(form.longitude)) > 180))) {
         setFormStep('basics'); setError(t('common.errorOccurred')); return
       }
-      if (createOwnerAccount && !importIds.current.owner && (!ownerName.trim() || ownerUsername.trim().length < 3 || ownerPassword.length < 6)) {
+      if (createOwnerAccount && (!ownerName.trim() || ownerUsername.trim().length < 3 || ownerPassword.length < 6)) {
         setFormStep('settings'); setError(t('common.required')); return
       }
     }
@@ -247,43 +248,33 @@ export default function AdminImportHotel() {
     }
     setSubmitting(true)
     try {
-      let ownerId = importIds.current.owner || form.owner_id || null
-      if (importType === 'full' && createOwnerAccount && !importIds.current.owner) {
-        const { data, error } = await supabase.rpc('register_user', {
-          p_username: ownerUsername.trim(), p_password: ownerPassword, p_name: ownerName.trim(),
-          p_role: 'hotel_owner', p_phone: form.phone.trim() || null,
-        })
-        if (error) throw error
-        const result = typeof data === 'string' ? JSON.parse(data) : data
-        if (!result?.success || !result.user?.id) throw new Error(result?.message || t('common.errorOccurred'))
-        ownerId = result.user.id
-        importIds.current.owner = result.user.id
-        setCreatedCredentials({ username: ownerUsername.trim(), password: ownerPassword, name: ownerName.trim() })
+      const rooms = formRoomTypes.map((room, index) => ({
+        id: importIds.current.rooms[index] ||= crypto.randomUUID(),
+        name: room.name.trim(), description: room.description || null, max_guests: room.max_guests,
+        base_price: room.base_price, amenities: room.amenities || [], images: room.images || [],
+      }))
+      const hotel = importType === 'rooms-only' ? { id: selectedHotelId } : {
+        id: importIds.current.hotel, name: form.name.trim(), city: form.city.trim(), location: form.location,
+        description: form.description, address: form.address, country: form.country,
+        profit_margin_percentage: Number(form.profit_margin_percentage), owner_id: form.owner_id || null,
+        images: formImages, amenities: formAmenities, status: form.status, property_type: form.property_type,
+        phone: form.phone || null, contact_person: form.contact_person || null, currency: form.currency,
+        latitude: form.latitude ? Number(form.latitude) : null, longitude: form.longitude ? Number(form.longitude) : null,
       }
-      const hotelId = importType === 'rooms-only' ? selectedHotelId : importIds.current.hotel
-      if (importType === 'full') {
-        const { error } = await supabase.from('hotels').upsert({
-          id: hotelId, name: form.name.trim(), city: form.city.trim(), location: form.location,
-          description: form.description, address: form.address, country: form.country,
-          profit_margin_percentage: Number(form.profit_margin_percentage), owner_id: ownerId,
-          images: formImages, amenities: formAmenities, status: form.status, property_type: form.property_type,
-          phone: form.phone || null, contact_person: form.contact_person || null, currency: form.currency,
-          latitude: form.latitude ? Number(form.latitude) : null, longitude: form.longitude ? Number(form.longitude) : null,
-        }).select('id').single()
-        if (error) throw error
-        // The primary owner already has access through hotels.owner_id.
-      }
-      if (formRoomTypes.length) {
-        const payloads = formRoomTypes.map((room, index) => ({
-          id: importIds.current.rooms[index] ||= crypto.randomUUID(), hotel_id: hotelId,
-          name: room.name.trim(), description: room.description || null, max_guests: room.max_guests,
-          base_price: room.base_price, amenities: room.amenities || [], images: room.images || [],
-        }))
-        const { error } = await supabase.from('room_types').upsert(payloads)
-        if (error) throw error
-      }
-      if (importType === 'full' && importIds.current.owner) setImportStep('success')
-      else navigate('/admin/hotels')
+      const owner = importType === 'full' && createOwnerAccount ? {
+        username: ownerUsername.trim(), password: ownerPassword, name: ownerName.trim(), phone: form.phone.trim() || null,
+      } : null
+      const { data, error: importError } = await supabase.rpc('admin_import_hotel', {
+        p_request_id: importIds.current.request,
+        p_hotel: hotel, p_rooms: rooms, p_owner: owner, p_rooms_only: importType === 'rooms-only',
+      })
+      if (importError) throw importError
+      const result = typeof data === 'string' ? JSON.parse(data) : data
+      if (!result?.success) throw new Error(t('common.errorOccurred'))
+      if (result.credentials) {
+        setCreatedCredentials(result.credentials)
+        setImportStep('success')
+      } else navigate('/admin/hotels')
     } catch (error) {
       setError(error instanceof Error ? error.message : t('common.errorOccurred'))
     } finally { setSubmitting(false) }

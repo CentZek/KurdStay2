@@ -98,13 +98,60 @@ test('quotes include nightly overrides, margin and multi-room guest capacity', a
   await assert.rejects(value(quoteSQL, [otherHotel, room, 2, 1]), /PROPERTY_UNAVAILABLE/)
 })
 
+test('server search prices every night, rejects partial inventory and supports no-date discovery', async () => {
+  await db.exec('RESET ROLE')
+  const complete = await value(`INSERT INTO hotels(name,location,city,profit_margin_percentage) VALUES('Complete Stay','Center','Searchville',10) RETURNING id AS value`)
+  const partial = await value(`INSERT INTO hotels(name,location,city,profit_margin_percentage) VALUES('Partial Stay','Center','Searchville',10) RETURNING id AS value`)
+  const empty = await value(`INSERT INTO hotels(name,location,city) VALUES('Empty Stay','Center','Searchville') RETURNING id AS value`)
+  const completeRoom = await value(`INSERT INTO room_types(hotel_id,name,max_guests,base_price) VALUES($1,'Suite',2,120) RETURNING id AS value`, [complete])
+  const partialRoom = await value(`INSERT INTO room_types(hotel_id,name,max_guests,base_price) VALUES($1,'Suite',2,100) RETURNING id AS value`, [partial])
+  await db.query(`INSERT INTO room_availability(room_type_id,date,available_rooms,base_price_override) VALUES
+    ($1,current_date+40,1,150),($1,current_date+41,1,NULL)`, [completeRoom])
+  await db.query(`INSERT INTO room_availability(room_type_id,date,available_rooms) VALUES($1,current_date+40,2)`, [partialRoom])
+  await identity()
+  const datedSQL = `SELECT * FROM search_hotels('Searchville',NULL,current_date+40,current_date+42,$1,1,'price_low',12,0)`
+  let rows = (await db.query(datedSQL, [2])).rows
+  assert.deepEqual(rows.map(row => row.id), [complete])
+  assert.equal(Number(rows[0].min_price), 148.5)
+  assert.equal(Number(rows[0].total_count), 1)
+  assert.deepEqual((await db.query(datedSQL, [3])).rows, [])
+
+  rows = (await db.query(`SELECT * FROM search_hotels('Searchville',NULL,NULL,NULL,2,1,'price_low',1,0)`)).rows
+  assert.deepEqual(rows.map(row => row.id), [partial])
+  assert.equal(Number(rows[0].min_price), 110)
+  assert.equal(Number(rows[0].total_count), 2)
+  rows = (await db.query(`SELECT * FROM search_hotels('Searchville',NULL,NULL,NULL,2,1,'price_low',1,1)`)).rows
+  assert.deepEqual(rows.map(row => row.id), [complete])
+  assert.equal(Number(rows[0].total_count), 2)
+  assert.deepEqual((await db.query(`SELECT * FROM search_hotels('Searchville','farm',NULL,NULL,2,1,'popular',12,0)`)).rows, [])
+  assert.equal((await db.query(`SELECT * FROM search_hotels('hawler',NULL,NULL,NULL,2,1,'popular',12,0)`)).rows.some(row => row.id === hotel), true)
+
+  await db.exec('RESET ROLE')
+  await db.query(`INSERT INTO bookings(hotel_id,room_type_id,customer_name,customer_email,check_in_date,check_out_date,guests,rooms,
+    base_price_total,margin_percentage,margin_amount,final_price_total,status) VALUES
+    ($1,$2,'One Night','night@example.test',current_date+40,current_date+41,2,1,150,10,15,165,'pending')`, [complete,completeRoom])
+  await identity()
+  assert.deepEqual((await db.query(datedSQL, [2])).rows, [])
+  assert.deepEqual((await db.query(`SELECT * FROM search_hotels('Searchville',NULL,current_date+41,current_date+42,2,1,'popular',12,0)`)).rows.map(row => row.id), [complete])
+})
+
+test('search RPC validates malformed filters and date ranges', async () => {
+  await identity()
+  await assert.rejects(db.query(`SELECT * FROM search_hotels(NULL,NULL,current_date+1,NULL,1,1,'popular',12,0)`), /INVALID_DATES/)
+  await assert.rejects(db.query(`SELECT * FROM search_hotels(NULL,NULL,current_date-1,current_date+1,1,1,'popular',12,0)`), /INVALID_DATES/)
+  await assert.rejects(db.query(`SELECT * FROM search_hotels(NULL,'castle',NULL,NULL,1,1,'popular',12,0)`), /INVALID_FILTERS/)
+  await assert.rejects(db.query(`SELECT * FROM search_hotels(NULL,NULL,NULL,NULL,1,1,'random',12,0)`), /INVALID_FILTERS/)
+  await assert.rejects(db.query(`SELECT * FROM search_hotels(NULL,NULL,NULL,NULL,1,1,'popular',51,0)`), /INVALID_FILTERS/)
+  await assert.rejects(db.query(`SELECT * FROM search_hotels(NULL,NULL,NULL,NULL,0,1,'popular',12,0)`), /INVALID_CAPACITY/)
+})
+
 test('booking creation rejects forged prices, retries once, and does not oversell', async () => {
   await identity(customerToken)
   const request = '30000000-0000-0000-0000-000000000001'
   await assert.rejects(value(createSQL, [request,hotel,room,1]), /PRICE_CHANGED/)
   bookingId = await value(createSQL, [request,hotel,room,275])
   assert.equal(await value(createSQL, [request,hotel,room,275]), bookingId)
-  assert.equal((await db.query('SELECT id FROM bookings')).rows.length, 1)
+  assert.equal((await db.query('SELECT id FROM bookings WHERE hotel_id=$1', [hotel])).rows.length, 1)
   await identity('', 'another-guest-secret-with-thirty-two-characters')
   assert.equal((await db.query('SELECT id FROM bookings')).rows.length, 0)
   await assert.rejects(value(createSQL, [request,hotel,room,275]), /Not authorized/)
@@ -334,4 +381,10 @@ test('reconciled security migrations preserve existing sessions, reservations an
   await assert.rejects(db.query('SELECT password_hash FROM profiles'), /permission denied/)
   await db.exec('RESET ROLE; SET ROLE service_role')
   assert.equal(await value(`SELECT claim_booking_notification($1,'booking_created') AS value`, [bookingId]), false)
+})
+
+
+test('the published read-only database verification script passes after migrations', async () => {
+  await db.exec('RESET ROLE')
+  await db.exec(await readFile('supabase/verify-setup.sql', 'utf8'))
 })

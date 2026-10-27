@@ -16,6 +16,9 @@ async function mockApi(page: Page, options: { unavailable?: boolean; failOnce?: 
   // Third-party font/CDN outages must not determine application test results.
   await page.route(/^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com|images\.pexels\.com)\//, route => route.abort())
   await page.route('https://booking.test/**', async route => {
+    if (new URL(route.request().url()).pathname.endsWith('/app_capabilities')) {
+      return route.fulfill({ json: { bookingSearch: true, adminReliability: true, applicationResubmit: true } })
+    }
     const request = route.request()
     const url = new URL(request.url())
     let data: any = []
@@ -67,6 +70,21 @@ test('assistant booking links preserve the initial room count and quote the full
   await expect(page.getByLabel('Check-out',{exact:true})).toHaveValue('2030-10-12')
 })
 
+test('a late quote cannot overwrite a newer occupancy selection', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/rest/v1/rpc/get_booking_quote', async route => {
+    const body = route.request().postDataJSON()
+    if (body.p_rooms === 1) await new Promise(resolve => setTimeout(resolve, 500))
+    await route.fulfill({ json: { nights: 2, finalPriceTotal: 275 * body.p_rooms, availableRooms: 3 } })
+  })
+  await page.goto(path, { waitUntil: 'domcontentloaded' })
+  await page.getByLabel('Rooms', { exact: true }).selectOption('2')
+  await expect(page.getByText('$550', { exact: true })).toBeVisible()
+  await page.waitForTimeout(650)
+  await expect(page.getByText('$550', { exact: true })).toBeVisible()
+  await expect(page.getByText('$275', { exact: true })).toHaveCount(0)
+})
+
 test('sold-out dates show a useful message and disable submission', async ({ page }) => {
   await mockApi(page, { unavailable: true })
   await page.goto(path, { waitUntil: 'domcontentloaded' })
@@ -108,6 +126,83 @@ test('reload recovers a successful request even when the last room is now sold o
   await page.goto(path, { waitUntil: 'domcontentloaded' })
   await expect(page).toHaveURL(new RegExp(`/booking/confirmation/${bookingId}`))
   expect(submissions).toHaveLength(0)
+})
+
+test('recovery checks every pending request without submitting again', async ({ page }) => {
+  const firstRequest = '40000000-0000-0000-0000-000000000001'
+  const secondRequest = '40000000-0000-0000-0000-000000000002'
+  const { submissions } = await mockApi(page)
+  const recovered: string[] = []
+  await page.addInitScript(({ hotelId, roomId, firstRequest, secondRequest }) => {
+    const first = { id: firstRequest, payload: JSON.stringify({ p_hotel_id: hotelId, p_room_type_id: roomId, p_rooms: 1 }) }
+    const second = { id: secondRequest, payload: JSON.stringify({ p_hotel_id: hotelId, p_room_type_id: roomId, p_rooms: 2 }) }
+    sessionStorage.setItem('kurdstay_booking_requests', JSON.stringify({ [first.payload]: first, [second.payload]: second }))
+  }, { hotelId, roomId, firstRequest, secondRequest })
+  await page.route('**/rest/v1/bookings*', async route => {
+    const requestId = new URL(route.request().url()).searchParams.get('request_id')
+    if (requestId) {
+      const id = requestId.slice(3)
+      recovered.push(id)
+      return route.fulfill({ json: id === secondRequest ? { id: bookingId } : null })
+    }
+    return route.fulfill({ json: { id: bookingId, status: 'pending', check_in_date: '2030-10-10', check_out_date: '2030-10-12',
+      guests: 2, rooms: 1, final_price_total: 275, hotels: { name: 'Mountain View Retreat', currency: 'USD' }, room_types: { name: 'Deluxe Double Room' } } })
+  })
+  await page.goto(path, { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(new RegExp(`/booking/confirmation/${bookingId}`))
+  // StrictMode may repeat reads, but must never resubmit a reservation.
+  expect([...new Set(recovered)]).toEqual([firstRequest, secondRequest])
+  expect(submissions).toHaveLength(0)
+})
+
+test('editing a failed booking creates a new key and preserves the older pending request', async ({ page }) => {
+  const { submissions } = await mockApi(page, { failOnce: true })
+  await page.goto(path, { waitUntil: 'domcontentloaded' })
+  await page.getByLabel('Name', { exact: false }).fill('Test Guest')
+  await page.getByLabel('Email', { exact: false }).fill('test@example.test')
+  await page.getByRole('button', { name: 'Request booking', exact: true }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await page.getByLabel('Rooms', { exact: true }).selectOption('2')
+  await expect(page.getByText('$550', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Request booking', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/booking/confirmation/${bookingId}`))
+  expect(submissions).toHaveLength(2)
+  expect(submissions[1].p_request_id).not.toBe(submissions[0].p_request_id)
+  const pending = await page.evaluate(() => JSON.parse(sessionStorage.getItem('kurdstay_booking_requests') || '{}'))
+  expect(Object.values(pending).map((request: any) => request.id)).toEqual([submissions[0].p_request_id])
+})
+
+test('checkout normalizes occupancy and synchronizes stay edits to the URL', async ({ page }) => {
+  await mockApi(page)
+  await page.goto(path.replace('guests=2', 'guests=999') + '&rooms=2', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByLabel('Guests', { exact: true })).toHaveValue('4')
+  await expect(page).toHaveURL(/guests=4/)
+  await page.getByLabel('Check-out', { exact: true }).fill('2030-10-13')
+  await expect(page).toHaveURL(/checkOut=2030-10-13/)
+  await page.getByLabel('Rooms', { exact: true }).selectOption('1')
+  await expect(page.getByLabel('Guests', { exact: true })).toHaveValue('2')
+  await expect(page).toHaveURL(/guests=2/)
+  await expect(page).toHaveURL(/rooms=1/)
+})
+
+test('storage restrictions and INVALID_CONTACT responses remain usable', async ({ page }) => {
+  const { errors } = await mockApi(page)
+  await page.addInitScript(() => {
+    for (const method of ['getItem', 'setItem', 'removeItem'] as const) {
+      const original = Storage.prototype[method]
+      Storage.prototype[method] = function (key: string, ...args: any[]) {
+        if (key.startsWith('kurdstay_booking')) throw new DOMException('Blocked', 'SecurityError')
+        return original.call(this, key, ...args)
+      }
+    }
+  })
+  await page.route('**/rest/v1/rpc/create_booking', route => route.fulfill({ status: 400, json: { message: 'INVALID_CONTACT' } }))
+  await page.goto(path, { waitUntil: 'domcontentloaded' })
+  await page.getByLabel('Name', { exact: false }).fill('Test Guest')
+  await page.getByLabel('Email', { exact: false }).fill('test@example.test')
+  await page.getByRole('button', { name: 'Request booking', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Enter your name and a valid email address')
+  expect(errors).toEqual([])
 })
 
 test('invalid dates in a shared link cannot enable booking or crash checkout', async ({ page }) => {
@@ -204,7 +299,7 @@ test('Arabic guest options and language switching update immediately', async ({ 
   await expect(page.getByRole('option', { name: 'ضيفان', exact: true })).toHaveCount(1)
   await expect(page.getByRole('option', { name: '3 ضيوف', exact: true })).toHaveCount(1)
   await page.getByRole('button', { name: ar.common.language, exact: true }).click()
-  await page.getByRole('button', { name: 'English', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'English', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr')
   await expect(page.getByRole('option', { name: '2 guests', exact: true })).toHaveCount(1)
 })

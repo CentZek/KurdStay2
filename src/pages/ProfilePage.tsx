@@ -1,4 +1,6 @@
 import { functionHeaders } from '../lib/session'
+import { useApiCapabilities } from '../lib/apiCapabilities'
+import { callPhoneVerification } from '../lib/verification'
 import { normalizeDigits } from '../lib/digits'
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -12,7 +14,6 @@ import {
 
 const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/phone-verification`
 const ID_CARD_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/id-card`
-const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 interface ProfileFields {
   name: string
@@ -32,18 +33,12 @@ const EMPTY: ProfileFields = {
   nationality: '', id_number: '', address: '', city: '', id_card_url: '',
 }
 
-async function callVerification(action: 'send' | 'verify', payload: Record<string, unknown>) {
-  const res = await fetch(FUNCTIONS_URL, {
-    method: 'POST',
-    headers: { ...functionHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...payload }),
-  })
-  let body: any = {}
-  try { body = await res.json() } catch { body = {} }
-  return { ok: res.ok, status: res.status, body }
+function callVerification(action: 'send' | 'verify', payload: Record<string, unknown>) {
+  return callPhoneVerification(action, payload, { url: FUNCTIONS_URL, headers: functionHeaders() })
 }
 
 export default function ProfilePage() {
+  const capabilities = useApiCapabilities()
   const { user, refreshProfile, loading: authLoading } = useAuth()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -73,40 +68,50 @@ export default function ProfilePage() {
       navigate('/login')
       return
     }
+    let active = true
+    setLoading(true)
     ;(async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('name, phone, email, date_of_birth, gender, nationality, id_number, address, city, id_card_url, phone_verified')
-        .eq('id', user.id)
-        .maybeSingle()
-      if (data) {
-        setFields({
-          name: data.name || '', phone: data.phone || '', email: data.email || '',
-          date_of_birth: data.date_of_birth || '', gender: data.gender || '',
-          nationality: data.nationality || '', id_number: data.id_number || '',
-          address: data.address || '', city: data.city || '', id_card_url: data.id_card_url || '',
-        })
-        setVerified(!!data.phone_verified)
-        if (data.id_card_url) {
-          try {
-            const res = await fetch(`${ID_CARD_URL}?action=view`, {
-              headers: functionHeaders(),
-            })
-            if (res.ok) {
-              const body = await res.json()
-              if (body.signed_url) setIdCardPreview(body.signed_url)
-            }
-          } catch { /* ignore */ }
+      try {
+        const { data, error: profileError } = await supabase
+          .from('profiles')
+          .select('name, phone, email, date_of_birth, gender, nationality, id_number, address, city, id_card_url, phone_verified')
+          .eq('id', user.id)
+          .maybeSingle()
+        if (!active) return
+        if (profileError) throw profileError
+        if (data) {
+          setFields({
+            name: data.name || '', phone: data.phone || '', email: data.email || '',
+            date_of_birth: data.date_of_birth || '', gender: data.gender || '',
+            nationality: data.nationality || '', id_number: data.id_number || '',
+            address: data.address || '', city: data.city || '', id_card_url: data.id_card_url || '',
+          })
+          setVerified(!!data.phone_verified)
+          if (data.id_card_url) {
+            try {
+              const res = await fetch(`${ID_CARD_URL}?action=view`, { headers: functionHeaders() })
+              if (res.ok) {
+                const body = await res.json()
+                if (active && body.signed_url) setIdCardPreview(body.signed_url)
+              }
+            } catch {}
+          }
         }
+        const { data: apps, error: applicationsError } = await supabase
+          .from('accommodation_applications')
+          .select('id, property_name, property_type, city, status, admin_notes, images, created_at')
+          .eq('applicant_id', user.id)
+          .order('created_at', { ascending: false })
+        if (!active) return
+        if (applicationsError) throw applicationsError
+        setApplications(apps || [])
+      } catch {
+        if (active) setError(t('common.errorOccurred'))
+      } finally {
+        if (active) setLoading(false)
       }
-      const { data: apps } = await supabase
-        .from('accommodation_applications')
-        .select('id, property_name, property_type, city, status, admin_notes, images, created_at')
-        .eq('applicant_id', user.id)
-        .order('created_at', { ascending: false })
-      setApplications(apps || [])
-      setLoading(false)
     })()
+    return () => { active = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, authLoading])
 
@@ -117,39 +122,39 @@ export default function ProfilePage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!user) return
+    if (!user || saving) return
     setSaving(true)
     setError('')
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({
-        name: fields.name,
-        email: fields.email || null,
-        date_of_birth: fields.date_of_birth || null,
-        gender: fields.gender || null,
-        nationality: fields.nationality || null,
-        id_number: fields.id_number || null,
-        address: fields.address || null,
-        city: fields.city || null,
-      })
-      .eq('id', user.id)
-    setSaving(false)
-    if (updateError) {
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          name: fields.name,
+          email: fields.email || null,
+          date_of_birth: fields.date_of_birth || null,
+          gender: fields.gender || null,
+          nationality: fields.nationality || null,
+          id_number: fields.id_number || null,
+          address: fields.address || null,
+          city: fields.city || null,
+        })
+        .eq('id', user.id)
+      if (updateError) throw updateError
+      setSaved(true)
+      await refreshProfile()
+    } catch {
       setError(t('profile.saveError'))
-      return
+    } finally {
+      setSaving(false)
     }
-    setSaved(true)
-    refreshProfile()
   }
 
   async function handleIdUpload(file: File) {
-    if (!user) return
+    if (!user || uploading) return
     setUploading(true)
     setError('')
-
     const formData = new FormData()
     formData.append('file', file)
-
     try {
       const res = await fetch(`${ID_CARD_URL}?action=upload`, {
         method: 'POST',
@@ -159,50 +164,60 @@ export default function ProfilePage() {
       const body = await res.json()
       if (!res.ok) {
         setError(body.error || t('profile.idCard.uploadTypeError'))
-        setUploading(false)
         return
       }
       if (body.signed_url) setIdCardPreview(body.signed_url)
       if (body.path) setFields(prev => ({ ...prev, id_card_url: body.path }))
     } catch {
       setError(t('profile.idCard.uploadError'))
+    } finally {
+      setUploading(false)
     }
-    setUploading(false)
   }
 
   async function sendCode() {
-    if (!user) return
+    if (!user || verifyLoading) return
     setVerifyErr('')
     setVerifyMsg('')
     setVerifyLoading(true)
-    const { status, body } = await callVerification('send', { profile_id: user.id, phone: fields.phone })
-    setVerifyLoading(false)
-    if (body?.code === 'not_configured' || status === 503) {
-      setVerifyErr(t('profile.whatsapp.notConfigured'))
-      return
+    try {
+      const { status, body, error: requestError } = await callVerification('send', { profile_id: user.id, phone: fields.phone })
+      if (body?.code === 'not_configured' || status === 503) {
+        setVerifyErr(t('profile.whatsapp.notConfigured'))
+        return
+      }
+      if (!body?.success) {
+        setVerifyErr(body?.error || requestError || t('profile.whatsapp.sendError'))
+        return
+      }
+      setShowCode(true)
+      setVerifyMsg(t('profile.whatsapp.codeSent'))
+    } catch {
+      setVerifyErr(t('profile.whatsapp.sendError'))
+    } finally {
+      setVerifyLoading(false)
     }
-    if (!body?.success) {
-      setVerifyErr(body?.error || t('profile.whatsapp.sendError'))
-      return
-    }
-    setShowCode(true)
-    setVerifyMsg(t('profile.whatsapp.codeSent'))
   }
 
   async function submitCode() {
-    if (!user) return
+    if (!user || verifyLoading) return
     setVerifyErr('')
     setVerifyLoading(true)
-    const { body } = await callVerification('verify', { profile_id: user.id, code })
-    setVerifyLoading(false)
-    if (!body?.success) {
-      setVerifyErr(body?.error || t('profile.whatsapp.verifyFailed'))
-      return
+    try {
+      const { body, error: requestError } = await callVerification('verify', { profile_id: user.id, code })
+      if (!body?.success) {
+        setVerifyErr(body?.error || requestError || t('profile.whatsapp.verifyFailed'))
+        return
+      }
+      setVerified(true)
+      setShowCode(false)
+      setCode('')
+      await refreshProfile()
+    } catch {
+      setVerifyErr(t('profile.whatsapp.verifyFailed'))
+    } finally {
+      setVerifyLoading(false)
     }
-    setVerified(true)
-    setShowCode(false)
-    setCode('')
-    refreshProfile()
   }
 
   if (loading) {
@@ -242,8 +257,8 @@ export default function ProfilePage() {
 
             {!verified && (
               <div className="mt-3">
-                {verifyErr && <div className="mb-2 text-sm text-red-700">{verifyErr}</div>}
-                {verifyMsg && <div className="mb-2 text-sm text-green-700">{verifyMsg}</div>}
+                {verifyErr && <div role="alert" className="mb-2 text-sm text-red-700">{verifyErr}</div>}
+                {verifyMsg && <div role="status" className="mb-2 text-sm text-green-700">{verifyMsg}</div>}
                 {!showCode ? (
                   <button
                     onClick={sendCode}
@@ -258,6 +273,8 @@ export default function ProfilePage() {
                     <input
                       type="text"
                       inputMode="numeric"
+                      autoComplete="one-time-code"
+                      aria-label={t('register.codeLabel')}
                       maxLength={6}
                       value={code}
                       onChange={e => setCode(normalizeDigits(e.target.value).replace(/\D/g, ''))}
@@ -334,6 +351,13 @@ export default function ProfilePage() {
                         <span className="font-medium">{t('profile.accommodations.adminNote')}</span> {app.admin_notes}
                       </div>
                     )}
+                    {capabilities?.applicationResubmit === true && app.status === 'info_requested' && (
+                      <button type="button" onClick={() => navigate(`/add-accommodation?application=${encodeURIComponent(app.id)}`)}
+                        aria-label={`${t('common.edit')} ${app.property_name}`}
+                        className="mt-2 text-sm text-primary-600 font-medium hover:underline">
+                        {t('common.edit')}
+                      </button>
+                    )}
                   </div>
                 </div>
               )
@@ -343,45 +367,45 @@ export default function ProfilePage() {
       </div>
 
       <form onSubmit={handleSave} className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
+        {error && <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
         <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('profile.details.title')}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.fullName')}</label>
-            <input type="text" required value={fields.name} onChange={e => update('name', e.target.value)} className={inputClass} />
+            <label htmlFor="profile-name" className="text-sm text-gray-600 font-medium">{t('profile.details.fullName')}</label>
+            <input id="profile-name" type="text" autoComplete="name" required value={fields.name} onChange={e => update('name', e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label className="text-sm text-gray-600 font-medium">{t('common.email')}</label>
-            <input type="email" value={fields.email} onChange={e => update('email', e.target.value)} placeholder={t('profile.details.optional')} className={inputClass} />
+            <label htmlFor="profile-email" className="text-sm text-gray-600 font-medium">{t('common.email')}</label>
+            <input id="profile-email" type="email" autoComplete="email" value={fields.email} onChange={e => update('email', e.target.value)} placeholder={t('profile.details.optional')} className={inputClass} />
           </div>
           <div>
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.dateOfBirth')}</label>
-            <input type="date" value={fields.date_of_birth} onChange={e => update('date_of_birth', e.target.value)} className={`${inputClass} min-w-0 max-w-full box-border appearance-none`} />
+            <label htmlFor="profile-birth-date" className="text-sm text-gray-600 font-medium">{t('profile.details.dateOfBirth')}</label>
+            <input id="profile-birth-date" type="date" autoComplete="bday" value={fields.date_of_birth} onChange={e => update('date_of_birth', e.target.value)} className={`${inputClass} min-w-0 max-w-full box-border appearance-none`} />
           </div>
           <div>
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.gender')}</label>
-            <select value={fields.gender} onChange={e => update('gender', e.target.value)} className={inputClass}>
+            <label htmlFor="profile-gender" className="text-sm text-gray-600 font-medium">{t('profile.details.gender')}</label>
+            <select id="profile-gender" value={fields.gender} onChange={e => update('gender', e.target.value)} className={inputClass}>
               <option value="">{t('profile.details.genderUnspecified')}</option>
               <option value="male">{t('profile.details.genderMale')}</option>
               <option value="female">{t('profile.details.genderFemale')}</option>
             </select>
           </div>
           <div>
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.nationality')}</label>
-            <input type="text" value={fields.nationality} onChange={e => update('nationality', e.target.value)} placeholder={t('profile.details.nationalityPlaceholder')} className={inputClass} />
+            <label htmlFor="profile-nationality" className="text-sm text-gray-600 font-medium">{t('profile.details.nationality')}</label>
+            <input id="profile-nationality" type="text" autoComplete="country-name" value={fields.nationality} onChange={e => update('nationality', e.target.value)} placeholder={t('profile.details.nationalityPlaceholder')} className={inputClass} />
           </div>
           <div>
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.idNumber')}</label>
-            <input type="text" value={fields.id_number} onChange={e => update('id_number', e.target.value)} className={inputClass} />
+            <label htmlFor="profile-id-number" className="text-sm text-gray-600 font-medium">{t('profile.details.idNumber')}</label>
+            <input id="profile-id-number" type="text" value={fields.id_number} onChange={e => update('id_number', e.target.value)} className={inputClass} />
           </div>
           <div>
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.city')}</label>
-            <input type="text" value={fields.city} onChange={e => update('city', e.target.value)} className={inputClass} />
+            <label htmlFor="profile-city" className="text-sm text-gray-600 font-medium">{t('profile.details.city')}</label>
+            <input id="profile-city" type="text" autoComplete="address-level2" value={fields.city} onChange={e => update('city', e.target.value)} className={inputClass} />
           </div>
           <div className="sm:col-span-2">
-            <label className="text-sm text-gray-600 font-medium">{t('profile.details.address')}</label>
-            <input type="text" value={fields.address} onChange={e => update('address', e.target.value)} className={inputClass} />
+            <label htmlFor="profile-address" className="text-sm text-gray-600 font-medium">{t('profile.details.address')}</label>
+            <input id="profile-address" type="text" autoComplete="street-address" value={fields.address} onChange={e => update('address', e.target.value)} className={inputClass} />
           </div>
         </div>
 

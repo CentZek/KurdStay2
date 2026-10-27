@@ -7,7 +7,10 @@ import { AlertCircle, ArrowLeft, CalendarCheck, Loader2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { formatDate } from '../../lib/locale'
-import { stayNights, validDate, bookingErrorKey } from '../../lib/booking'
+import {
+  baghdadToday, bookingErrorKey, clearBookingRequest, normalizeOccupancy, pendingBookingRequests,
+  reusableBookingRequest, saveBookingRequest, stayNights, validDate, type PendingBookingRequest,
+} from '../../lib/booking'
 
 interface Hotel {
   id: string
@@ -26,7 +29,7 @@ interface RoomType {
 
 export default function BookingPage() {
   const { hotelId, roomTypeId } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { profile } = useAuth()
@@ -41,19 +44,18 @@ export default function BookingPage() {
   const [quoteRevision, setQuoteRevision] = useState(0)
   const [quote, setQuote] = useState<{ key: string; nights: number; finalPriceTotal: number } | null>(null)
   const submittingRef = useRef(false)
-  const requestRef = useRef<{ payload: string; id: string } | null>(null)
+  const requestRef = useRef<PendingBookingRequest | null>(null)
+  const submissionRef = useRef(0)
+  const dataRequestRef = useRef(0)
+  const confirmationStarted = useRef(false)
   const errorRef = useRef<HTMLDivElement>(null)
-
-  function getLocalToday() {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
-  const today = getLocalToday()
+  const today = baghdadToday()
+  const initialOccupancy = normalizeOccupancy(searchParams.get('guests'), searchParams.get('rooms'))
 
   const [checkIn, setCheckIn] = useState(validDate(searchParams.get('checkIn') || '') ? searchParams.get('checkIn')! : '')
   const [checkOut, setCheckOut] = useState(validDate(searchParams.get('checkOut') || '') ? searchParams.get('checkOut')! : '')
-  const [guests, setGuests] = useState(searchParams.get('guests') || '2')
-  const [rooms, setRooms] = useState(() => { const count = Number(searchParams.get('rooms')); return Number.isInteger(count) && count >= 1 && count <= 5 ? String(count) : '1' })
+  const [guests, setGuests] = useState(String(initialOccupancy.guests))
+  const [rooms, setRooms] = useState(String(initialOccupancy.rooms))
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -64,34 +66,78 @@ export default function BookingPage() {
   }, [profile])
 
   useEffect(() => {
+    submissionRef.current += 1
+    submittingRef.current = false
+    setSubmitting(false)
+    requestRef.current = null
     fetchData()
+    return () => {
+      dataRequestRef.current += 1
+      submissionRef.current += 1
+    }
   }, [hotelId, roomTypeId])
 
   useEffect(() => {
     let active = true
-    async function recoverRequest() {
-      const stored = sessionStorage.getItem('kurdstay_booking_request')
-      if (!stored) return
-      const request = JSON.parse(stored)
-      const payload = JSON.parse(request.payload)
-      if (payload.p_hotel_id !== hotelId || payload.p_room_type_id !== roomTypeId) return
-      const { data } = await supabase.from('bookings').select('id').eq('request_id', request.id).maybeSingle()
-      if (active && data) navigate(`/booking/confirmation/${data.id}`, { replace: true })
+    async function recoverRequests() {
+      for (const request of pendingBookingRequests(hotelId, roomTypeId)) {
+        const { data } = await supabase.from('bookings').select('id').eq('request_id', request.id).maybeSingle()
+        if (!active) return
+        if (data) {
+          confirmationStarted.current = true
+          dataRequestRef.current += 1
+          clearBookingRequest(request)
+          navigate(`/booking/confirmation/${data.id}`, { replace: true })
+          return
+        }
+      }
     }
-    recoverRequest().catch(() => {})
+    recoverRequests().catch(() => {})
     return () => { active = false }
   }, [hotelId, roomTypeId, navigate])
 
   async function fetchData() {
+    const requestId = ++dataRequestRef.current
     setLoading(true)
-    const [hotelRes, roomRes] = await Promise.all([
-      supabase.from('hotels').select('id, name, city, profit_margin_percentage, currency').eq('id', hotelId).eq('status', 'active').maybeSingle(),
-      supabase.from('room_types').select('id, name, base_price, max_guests').eq('id', roomTypeId).eq('hotel_id', hotelId).maybeSingle(),
-    ])
-    if (hotelRes.error || roomRes.error) setFormError(t('common.errorOccurred'))
-    setHotel(hotelRes.data)
-    setRoomType(roomRes.data)
-    setLoading(false)
+    setFormError('')
+    try {
+      const [hotelRes, roomRes] = await Promise.all([
+        supabase.from('hotels').select('id, name, city, profit_margin_percentage, currency').eq('id', hotelId).eq('status', 'active').maybeSingle(),
+        supabase.from('room_types').select('id, name, base_price, max_guests').eq('id', roomTypeId).eq('hotel_id', hotelId).maybeSingle(),
+      ])
+      if (requestId !== dataRequestRef.current) return
+      if (hotelRes.error || roomRes.error) setFormError(t('common.errorOccurred'))
+      setHotel(hotelRes.data)
+      setRoomType(roomRes.data)
+      if (roomRes.data) {
+        const occupancy = normalizeOccupancy(guests, rooms, roomRes.data.max_guests)
+        setGuests(String(occupancy.guests))
+        setRooms(String(occupancy.rooms))
+      }
+      setLoading(false)
+    } catch {
+      if (requestId !== dataRequestRef.current) return
+      setFormError(t('common.errorOccurred'))
+      setHotel(null)
+      setRoomType(null)
+      setLoading(false)
+    }
+  }
+
+  // Keep URL normalization out of the data-request completion: an asynchronous
+  // completion must not navigate back over a recovered booking confirmation.
+  useEffect(() => {
+    if (roomType && !confirmationStarted.current) syncCheckoutParams({ guests, rooms })
+  }, [roomType, guests, rooms])
+
+  function syncCheckoutParams(changes: Record<string, string | null>) {
+    if (confirmationStarted.current) return
+    const params = new URLSearchParams(searchParams)
+    for (const [key, value] of Object.entries(changes)) {
+      if (value) params.set(key, value)
+      else params.delete(key)
+    }
+    if (params.toString() !== searchParams.toString()) setSearchParams(params, { replace: true })
   }
 
   const quoteKey = [hotelId, roomTypeId, checkIn, checkOut, guests, rooms].join('|')
@@ -136,16 +182,11 @@ export default function BookingPage() {
     e.preventDefault()
     if (submittingRef.current || !hotel || !roomType) return
     if (!Number.isInteger(Number(guests)) || Number(guests) < 1 || Number(guests) > roomType.max_guests * Number(rooms)) { setFormError(t('ux.guestCapacity')); return }
-    if (!pricing) {
+    if (!pricing || pricing.nights <= 0) {
       setFormError(t('booking.invalidDates'))
       return
     }
-    if (pricing.nights <= 0) {
-      setFormError(t('booking.invalidDates'))
-      return
-    }
-    const freshToday = getLocalToday()
-    if (checkIn < freshToday) {
+    if (checkIn < baghdadToday()) {
       setFormError(t('booking.pastDate'))
       return
     }
@@ -153,11 +194,11 @@ export default function BookingPage() {
       setFormError(t('booking.invalidDates'))
       return
     }
-
     if (!name.trim() || !email.trim()) { setFormError(t('booking.invalidContact')); return }
     setFormError('')
     submittingRef.current = true
     setSubmitting(true)
+    const submissionId = ++submissionRef.current
     const payload = {
       p_hotel_id: hotel.id, p_room_type_id: roomType.id, p_name: name.trim(), p_email: email.trim(),
       p_phone: phone.trim(), p_check_in: checkIn, p_check_out: checkOut,
@@ -166,33 +207,39 @@ export default function BookingPage() {
     }
     const fingerprint = JSON.stringify(payload)
     try {
-      // Keep the same key when retrying after a lost response or page reload.
-      const stored = sessionStorage.getItem('kurdstay_booking_request')
-      if (!requestRef.current && stored) {
-        try { requestRef.current = JSON.parse(stored) } catch { /* discard corrupt draft */ }
+      const request = requestRef.current?.payload === fingerprint
+        ? requestRef.current
+        : reusableBookingRequest(fingerprint) || { payload: fingerprint, id: crypto.randomUUID() }
+      requestRef.current = request
+      saveBookingRequest(request)
+      const { data, error } = await supabase.rpc('create_booking', { ...payload, p_request_id: request.id })
+      if (submissionId !== submissionRef.current) {
+        if (data) clearBookingRequest(request)
+        return
       }
-      if (requestRef.current?.payload !== fingerprint) {
-        requestRef.current = { payload: fingerprint, id: crypto.randomUUID() }
-        sessionStorage.setItem('kurdstay_booking_request', JSON.stringify(requestRef.current))
-      }
-      const { data, error } = await supabase.rpc('create_booking', { ...payload, p_request_id: requestRef.current.id })
       if (error || !data) {
         setFormError(t(bookingErrorKey(error?.message || '')))
-        // Keep the current quote after an ambiguous transport failure so retry
-        // can recover the same request even if it reserved the last room.
         if (/ROOM_UNAVAILABLE|PROPERTY_UNAVAILABLE|PRICE_CHANGED|INVALID_/.test(error?.message || '')) {
           setQuoteRevision(value => value + 1)
         }
         return
       }
-      sessionStorage.removeItem('kurdstay_booking_request')
+      confirmationStarted.current = true
+      dataRequestRef.current += 1
+      clearBookingRequest(request)
       fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-notify`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...functionHeaders() },
         body: JSON.stringify({ type: 'booking_created', booking_id: data }),
       }).catch(() => {})
       navigate(`/booking/confirmation/${data}`, { replace: true })
-    } catch { setFormError(t('booking.submitFailed')) }
-    finally { submittingRef.current = false; setSubmitting(false) }
+    } catch {
+      if (submissionId === submissionRef.current) setFormError(t('booking.submitFailed'))
+    } finally {
+      if (submissionId === submissionRef.current) {
+        submittingRef.current = false
+        setSubmitting(false)
+      }
+    }
   }
 
   if (loading) {
@@ -241,8 +288,11 @@ export default function BookingPage() {
                   value={checkIn}
                   min={today}
                   onChange={e => {
-                    setCheckIn(e.target.value)
-                    if (checkOut && e.target.value >= checkOut) setCheckOut('')
+                    const value = e.target.value
+                    const nextCheckOut = checkOut && value >= checkOut ? '' : checkOut
+                    setCheckIn(value)
+                    setCheckOut(nextCheckOut)
+                    syncCheckoutParams({ checkIn: value, checkOut: nextCheckOut })
                   }}
                   className="w-full min-w-0 max-w-full box-border appearance-none mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
@@ -255,7 +305,7 @@ export default function BookingPage() {
                   id="booking-checkOut"
                   value={checkOut}
                   min={format(addDays(parseISO(isValid(parseISO(checkIn)) ? checkIn : today), 1), 'yyyy-MM-dd')}
-                  onChange={e => setCheckOut(e.target.value)}
+                  onChange={e => { setCheckOut(e.target.value); syncCheckoutParams({ checkOut: e.target.value }) }}
                   className="w-full min-w-0 max-w-full box-border appearance-none mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
               </div>
@@ -264,7 +314,7 @@ export default function BookingPage() {
                 <select
                   id="booking-guests"
                   value={guests}
-                  onChange={e => setGuests(e.target.value)}
+                  onChange={e => { setGuests(e.target.value); syncCheckoutParams({ guests: e.target.value }) }}
                   className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {Array.from({ length: roomType.max_guests * Number(rooms) }, (_, i) => i + 1).map(n => (
@@ -277,7 +327,13 @@ export default function BookingPage() {
                 <select
                   id="booking-rooms"
                   value={rooms}
-                  onChange={e => { setRooms(e.target.value); setGuests(value => String(Math.min(Number(value), roomType.max_guests * Number(e.target.value)))) }}
+                  onChange={e => {
+                    const nextRooms = e.target.value
+                    const nextGuests = String(Math.min(Number(guests), roomType.max_guests * Number(nextRooms)))
+                    setRooms(nextRooms)
+                    setGuests(nextGuests)
+                    syncCheckoutParams({ rooms: nextRooms, guests: nextGuests })
+                  }}
                   className="w-full mt-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   {[1, 2, 3, 4, 5].map(n => (
