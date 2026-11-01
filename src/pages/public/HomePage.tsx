@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { MapPin, Calendar, Users, Search, ArrowRight, Building2, Home, TreePalm, Warehouse, Hotel } from 'lucide-react'
 import { BrandLogo } from '../../components/Header'
+import ModeSwitch from '../../components/ModeSwitch'
 import { format, addDays, parseISO } from 'date-fns'
 import { Compass, ArrowUpRight, Clock, RefreshCw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -165,6 +166,7 @@ export default function HomePage() {
       <section className="home-hero">
         <div className="hero-inner">
           <div className="hero-copy">
+            <ModeSwitch className="hero-mode-switch inline-flex" />
             <p className="eyebrow"><span /> {t('ux.discover')}</p>
             <h1>{t('ux.heroStart')}<br /><em>{t('ux.heroAccent')}</em></h1>
             <p className="hero-description">{t('ux.heroDescription')}</p>
