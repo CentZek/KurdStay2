@@ -1,0 +1,52 @@
+[
+  {
+    "listingId": 76770,
+    "region": "Erbil",
+    "url": "https://www.youtube.com/watch?v=b3O9WN2xs2M",
+    "status": 200,
+    "title": "Apartment | Sale | 167 m² | Kamarani City",
+    "author": "Paya Real Esate APP"
+  },
+  {
+    "listingId": 76399,
+    "region": "Sulaymaniyah",
+    "url": "https://www.youtube.com/watch?v=MZNoNG8REbQ",
+    "status": 200,
+    "title": "Apartment | Sale | 160 m² | Suli View",
+    "author": "Paya Real Esate APP"
+  },
+  {
+    "listingId": 76332,
+    "region": "Sulaymaniyah",
+    "url": "https://www.youtube.com/watch?v=RDtNNA9NkMk",
+    "status": 200,
+    "title": "Apartment | Sale | 118 m² | German Village 3",
+    "author": "Paya Real Esate APP"
+  },
+  {
+    "listingId": 75424,
+    "region": "Sulaymaniyah",
+    "url": "https://www.youtube.com/watch?v=IWxp_ZzhxX0",
+    "status": 200,
+    "title": "Apartment | Sale | 180 m² | Qaiwan City, Salim Street",
+    "author": "Paya Real Esate APP"
+  },
+  {
+    "listingId": 74712,
+    "region": "Sulaymaniyah",
+    "url": "https://www.youtube.com/watch?v=z-kI1NBhZlw",
+    "status": 403
+  },
+  {
+    "listingId": 74667,
+    "region": "Sulaymaniyah",
+    "url": "https://www.youtube.com/watch?v=MCJQJ7F_2Zc",
+    "status": 403
+  },
+  {
+    "listingId": 74666,
+    "region": "Sulaymaniyah",
+    "url": "https://www.youtube.com/watch?v=2LrzxE0e_4o",
+    "status": 403
+  }
+]

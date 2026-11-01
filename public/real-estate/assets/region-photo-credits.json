@@ -1,0 +1,54 @@
+[
+  {
+    "key": "duhok",
+    "file": "assets/region-duhok.jpg",
+    "title": "Duhok dam at sunrise.jpg",
+    "source": "https://commons.wikimedia.org/wiki/File:Duhok_dam_at_sunrise.jpg",
+    "author": "JF2608",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "original": "https://upload.wikimedia.org/wikipedia/commons/a/ac/Duhok_dam_at_sunrise.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "download": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ac/Duhok_dam_at_sunrise.jpg/960px-Duhok_dam_at_sunrise.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "changes": "Wikimedia thumbnail; displayed with a responsive CSS crop. No other image edits.",
+    "bytes": 151896
+  },
+  {
+    "key": "erbil",
+    "file": "assets/region-erbil.jpg",
+    "title": "Erbil Citadel-Erbil.jpg",
+    "source": "https://commons.wikimedia.org/wiki/File:Erbil_Citadel-Erbil.jpg",
+    "author": "Abdulsalam Al Dabbagh",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "original": "https://upload.wikimedia.org/wikipedia/commons/8/8d/Erbil_Citadel-Erbil.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "download": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8d/Erbil_Citadel-Erbil.jpg/960px-Erbil_Citadel-Erbil.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "changes": "Wikimedia thumbnail; displayed with a responsive CSS crop. No other image edits.",
+    "bytes": 154104
+  },
+  {
+    "key": "sulaymaniyah",
+    "file": "assets/region-sulaymaniyah.jpg",
+    "title": "Chavy Land.jpg",
+    "source": "https://commons.wikimedia.org/wiki/File:Chavy_Land.jpg",
+    "author": "Davidbstanley",
+    "license": "CC BY-SA 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+    "original": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Chavy_Land.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "download": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bf/Chavy_Land.jpg/960px-Chavy_Land.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "changes": "Wikimedia thumbnail; displayed with a responsive CSS crop. No other image edits.",
+    "bytes": 227810
+  },
+  {
+    "key": "halabja",
+    "file": "assets/region-halabja.jpg",
+    "title": "Halabja Martyrs Monument.jpg",
+    "source": "https://commons.wikimedia.org/wiki/File:Halabja_Martyrs_Monument.jpg",
+    "author": "John  Crane",
+    "license": "CC BY 2.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+    "original": "https://upload.wikimedia.org/wikipedia/commons/7/7b/Halabja_Martyrs_Monument.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+    "download": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7b/Halabja_Martyrs_Monument.jpg/960px-Halabja_Martyrs_Monument.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+    "changes": "Wikimedia thumbnail; displayed with a responsive CSS crop. No other image edits.",
+    "bytes": 174675
+  }
+]

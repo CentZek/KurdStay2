@@ -1,0 +1,33 @@
+{
+  "checkedDate": "2026-11-01",
+  "sourceAds": 10659,
+  "included": 4163,
+  "byRegion": {
+    "Duhok": 36,
+    "Erbil": 3483,
+    "Sulaymaniyah": 642,
+    "Halabja": 2
+  },
+  "removedPrevious": [
+    74669,
+    62818,
+    58372,
+    58371,
+    75354,
+    75332,
+    74553,
+    74252,
+    54395
+  ],
+  "added": 4079,
+  "excludedReasons": {
+    "Not source-active for sale": 374,
+    "No usable source property photograph": 4565,
+    "Duplicate photo/specification fingerprint or reference": 72,
+    "No clear total USD asking price": 664,
+    "Outside house/apartment/residential-land scope": 818,
+    "Missing area": 3
+  },
+  "photoChecks": 5679,
+  "failedPages": []
+}
