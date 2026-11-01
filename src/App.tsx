@@ -7,6 +7,7 @@ import Header from './components/Header'
 import { useApiCapabilities, type ApiCapabilities } from './lib/apiCapabilities'
 import OfflineIndicator from './components/OfflineIndicator'
 import { initNativeFeatures } from './lib/native'
+import { REAL_ESTATE_URL } from './components/ModeSwitch'
 import i18n, { RTL_LANGUAGES } from './i18n'
 
 const HomePage = lazy(() => import('./pages/public/HomePage'))
@@ -46,6 +47,11 @@ function PageLoader() {
       <span className="sr-only">{i18n.t('common.loading')}</span>
     </div>
   )
+}
+
+function RealEstateRedirect() {
+  useEffect(() => { window.location.replace(REAL_ESTATE_URL) }, [])
+  return <PageLoader />
 }
 
 function CompatiblePage({ feature, modern, legacy }: { feature: keyof ApiCapabilities; modern: ReactNode; legacy: ReactNode }) {
@@ -177,6 +183,7 @@ function AppContent() {
           <Routes>
           <Route path="*" element={<div className="mx-auto max-w-lg px-6 py-20 text-center"><h1 className="text-2xl font-bold">{i18n.t('common.notFound')}</h1><NavLink to="/" className="inline-block mt-6 rounded-xl bg-primary-600 px-6 py-3 text-white">{i18n.t('common.home')}</NavLink></div>} />
           <Route path="/" element={<HomePage />} />
+          <Route path="/real-estate" element={<RealEstateRedirect />} />
           <Route path="/search" element={<CompatiblePage feature="bookingSearch" modern={<SearchResults />} legacy={<SearchResultsLegacy />} />} />
           <Route path="/hotel/:id" element={<HotelDetail />} />
           <Route path="/booking/:hotelId/:roomTypeId" element={<BookingPage />} />

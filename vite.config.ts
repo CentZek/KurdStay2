@@ -59,6 +59,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globIgnores: ['**/node_modules/**', 'real-estate/**'],
+        navigateFallbackDenylist: [/^\/real-estate(\/|$)/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/images\.pexels\.com\/.*/i,
