@@ -6,6 +6,7 @@ const kmr = {
   assistant: assistantTranslations.kmr,
   socialVideo: socialVideoTranslations.kmr,
   ux: {
+    modeSwitch: "هەلبژێرە تو ل چ دگەڕێی", modeHotels: "هوتێل", modeRealEstate: "خانی و زەڤی",
     navigation: "ڕێنیشاندانا سەرەکی", menu: 'ڤەکرن یان گرتنا لیستێ', listProperty: 'موڵکا خۆ زێدە بکە',
     discover: 'هوتێل، مزراعە و پشووێن کۆتایا هەفتێ', heroStart: 'ل جهەکێ بمینە', heroAccent: "کو تایبەت بیت.",
     heroDescription: 'دیمەنێن چیایان، مزراعەیێن تایبەت و هوتێلێن باژێر — مانا خۆ یا گونجای ل کوردستان و عیراقێ ببینە.',

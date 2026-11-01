@@ -1,0 +1,15 @@
+# Duhok advertisements — 1 November 2026
+
+Thirty distinct advertisements from Paya Real Estate replace the twelve fictitious demo properties: 11 houses, 12 apartments, 7 residential land ads. Each has a published USD asking price. Individual source pages were fetched and their visible prices, sale status and Duhok locality checked against their structured metadata. One likely duplicate apartment was excluded. These are distinct advertisements, not independently verified unique properties.
+
+`dist/listings.json` is the auditable data snapshot; `dist/listings-data.js` supplies the same records to the app. Each record retains its individual source URL and reference, posting date, checked date, advertiser, price, area and source-reported specifications. `scripts/import-listings.py` documents the import. Raw research HTML is outside the repository. This is not an automated feed and availability, ownership, exact locations and seller claims have not been independently confirmed. Some ads are older; posting dates are visible in listing details.
+
+The media update includes up to four images from each original advertisement (27 ads; 66 images), with existing watermarks retained, source attribution and a link to the original ad. These are advertiser images, not independently authenticated photos; any boundary markings remain source claims. Three land ads had no property photos and use an explicitly labelled example photo (IDs 62818, 58372, 58371). No marketing descriptions or complete source pages are republished. Image provenance is recorded in `dist/assets/listing-media-sources.json`. The hero image is illustrative architecture, not a property listing.
+
+Source map coordinates are retained separately as `location.sourceLat` / `sourceLng`. Some advertisements in different places share an identical generic point. All active listing `lat` / `lng` values therefore remain null and location status is `source-reported`. Source coordinates now render as unverified price pins. Nearby/overlapping points are grouped, with a chooser for every advertisement; conflicting area names are disclosed. Verified coordinates remain null. The map remains available for district/street exploration, and listings are searchable by advertised neighborhood. District grouping is a navigation convenience, not a verified administrative assignment. Viewport filtering uses source points and does not imply verified property locations. No parcel polygons or verified parcel IDs are present.
+
+Before enabling exact pins, independently confirm the property/entrance and preserve coordinate provenance, precision and measured uncertainty. Apartments need building, floor and unit; a shared horizontal position does not identify a unit. Land needs authoritative parcel identifiers and surveyed/georeferenced geometry in a known coordinate system. Never infer legal boundaries or availability from empty map space or roads.
+
+Validation: `node check.cjs`, `node check-home.cjs`, `node --check dist/app.js`, `node --check dist/home.js`.
+
+Source browse page: https://paya-realestate.com/en/search/properties/for-sale/Duhok/All

@@ -6,6 +6,7 @@ const en = {
   assistant: assistantTranslations.en,
   socialVideo: socialVideoTranslations.en,
   ux: {
+    modeSwitch: "Choose what to browse", modeHotels: "Hotels", modeRealEstate: "Real estate",
     navigation: 'Main navigation', menu: 'Open or close menu', listProperty: 'List your property',
     discover: 'HOTELS, FARMS & WEEKEND ESCAPES', heroStart: 'Stay somewhere', heroAccent: 'extraordinary.',
     heroDescription: 'Mountain views, private farms & city hotels — find your perfect stay in Kurdistan & Iraq.',

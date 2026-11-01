@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { LANGUAGES, changeLanguage } from '../i18n'
 import { useAuth } from '../context/AuthContext'
+import ModeSwitch from './ModeSwitch'
 import { ChevronDown, Globe, Menu, X, User } from 'lucide-react'
 
 export function BrandLogo() {
@@ -100,6 +101,8 @@ export default function Header() {
         <div className="flex items-center justify-between h-[76px]">
           <Link to="/" className="flex items-center gap-2"><BrandLogo /></Link>
 
+          <ModeSwitch className="hidden sm:inline-flex" />
+
           <nav aria-label={t('ux.navigation')} className="desktop-navigation hidden xl:flex items-center gap-2">
             <NavLink to="/" end className="header-control">{t('common.home')}</NavLink>
             <NavLink to="/search" className="header-control">{t('common.browseProperties')}</NavLink>
@@ -171,6 +174,7 @@ export default function Header() {
         {mobileMenuOpen && (
           <nav id="mobile-navigation" aria-label={t('ux.navigation')} className="mobile-navigation xl:hidden border-t border-white/10 py-4">
             <div className="flex flex-col gap-3">
+              <ModeSwitch className="inline-flex self-start sm:hidden" />
               <Link to="/" className="text-gray-200 py-2 text-sm font-medium" onClick={() => setMobileMenuOpen(false)}>{t('common.home')}</Link>
               <Link to="/search" className="text-gray-200 py-2 text-sm font-medium">{t('common.browseProperties')}</Link>
               <Link to="/add-accommodation" className="text-primary-300 py-2 text-sm font-medium">{t('ux.listProperty')}</Link>

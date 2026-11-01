@@ -6,6 +6,7 @@ const ku = {
   assistant: assistantTranslations.ckb,
   socialVideo: socialVideoTranslations.ckb,
   ux: {
+    modeSwitch: "هەڵبژێرە چی دەگەڕێیت", modeHotels: "هوتێلەکان", modeRealEstate: "خانووبەرە",
     navigation: 'ڕێنیشاندەری سەرەکی', menu: 'کردنەوە یان داخستنی لیست', listProperty: 'شوێنی مانەوەکەت زیاد بکە',
     discover: 'هوتێل و کێڵگە و پشووی کۆتایی هەفتە', heroStart: 'مانەوەی داهاتووت', heroAccent: 'تایبەت بێت.',
     heroDescription: 'دیمەنی شاخ، کێڵگەی تایبەت، و هوتێلی شار — مانەوەی گونجاوت لە کوردستان و عێراق بدۆزەوە.',

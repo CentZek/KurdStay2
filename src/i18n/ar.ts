@@ -6,6 +6,7 @@ const ar = {
   assistant: assistantTranslations.ar,
   socialVideo: socialVideoTranslations.ar,
   ux: {
+    modeSwitch: "اختر ما تريد تصفحه", modeHotels: "الفنادق", modeRealEstate: "العقارات",
     navigation: 'التنقل الرئيسي', menu: 'فتح أو إغلاق القائمة', listProperty: 'أضف مكان إقامتك',
     discover: 'فنادق ومزارع وعطلات نهاية الأسبوع', heroStart: 'إقامتك القادمة', heroAccent: 'تستحق التميّز.',
     heroDescription: 'إطلالات جبلية، مزارع خاصة، وفنادق في قلب المدينة — اكتشف إقامتك في كردستان والعراق.',
